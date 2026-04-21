@@ -168,12 +168,19 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	// rule; (include=false, matched=true) for paths the list excludes.
 	// Only in the latter case do we skip, and only a matching directory
 	// prunes its subtree — a matching file just drops that one entry.
-	include, _ := s.excl.Match(name, d.IsDir())
-	if !include {
-		if d.IsDir() {
-			return filepath.SkipDir
+	//
+	// The transfer root (".") is always transmitted: rules describe
+	// which descendants to include, not whether the root itself is
+	// eligible — and an overly broad rule like "*" would otherwise
+	// prune the whole tree before we descended into it.
+	if path != "." {
+		include, _ := s.excl.Match(name, d.IsDir())
+		if !include {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
-		return nil
 	}
 
 	s.fileList.Files = append(s.fileList.Files, file{
