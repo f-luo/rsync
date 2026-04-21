@@ -18,6 +18,8 @@ require (
 	golang.org/x/sys v0.32.0
 )
 
+require github.com/bmatcuk/doublestar/v4 v4.10.0
+
 require (
 	github.com/landlock-lsm/go-landlock v0.0.0-20250303204525-1544bccde3a3
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.70 // indirect
