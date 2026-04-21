@@ -49,6 +49,22 @@ func (rt *Transfer) deleteFiles(fileList []*File) error {
 			if findInFileList(fileList, name) {
 				return nil
 			}
+			// Honor the filter list as a delete guard: if a rule
+			// excludes this path, it is "protected" and must not be
+			// removed. --delete-excluded (deferred to v2) would flip
+			// this gate; today we always protect excluded paths.
+			if l := rt.Opts.FilterList; l != nil {
+				include, matched := l.Match(name, info.IsDir())
+				if matched && !include {
+					if rt.Opts.Verbose {
+						rt.Logger.Printf("  protecting %s (matches filter rule)", name)
+					}
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
 			if rt.Opts.Verbose {
 				rt.Logger.Printf("  deleting %s", name)
 			}
