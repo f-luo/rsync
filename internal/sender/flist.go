@@ -163,8 +163,17 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	}
 	// st.logger.Printf("flags for %q: %v", name, flags)
 
-	if s.excl.Matches(name) {
-		return filepath.SkipDir
+	// Apply the filter list with directory context. Match returns
+	// (include=true, matched=false) for paths that fall through every
+	// rule; (include=false, matched=true) for paths the list excludes.
+	// Only in the latter case do we skip, and only a matching directory
+	// prunes its subtree — a matching file just drops that one entry.
+	include, _ := s.excl.Match(name, d.IsDir())
+	if !include {
+		if d.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
 	}
 
 	s.fileList.Files = append(s.fileList.Files, file{
