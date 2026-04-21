@@ -19,6 +19,7 @@ import (
 	"github.com/gokrazy/rsync"
 	"github.com/gokrazy/rsync/internal/log"
 	"github.com/gokrazy/rsync/internal/receiver"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncopts"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
@@ -480,7 +481,7 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 
 	if opts.DeleteMode() {
 		// receive the exclusion list (openrsync’s is always empty)
-		exclusionList, err := sender.RecvFilterList(c)
+		exclusionList, err := rsyncfilter.Recv(c)
 		if err != nil {
 			return err
 		}
@@ -524,7 +525,7 @@ func (s *Server) handleConnSender(module *Module, crd *rsyncwire.CountingReader,
 		Seed:   sessionChecksumSeed,
 	}
 	// receive the exclusion list (openrsync’s is always empty)
-	exclusionList, err := sender.RecvFilterList(st.Conn)
+	exclusionList, err := rsyncfilter.Recv(st.Conn)
 	if err != nil {
 		return err
 	}

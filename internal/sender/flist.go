@@ -14,6 +14,7 @@ import (
 
 	"github.com/gokrazy/rsync"
 	"github.com/gokrazy/rsync/internal/rsyncchecksum"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
@@ -71,7 +72,7 @@ type scopedWalker struct {
 	st       *Transfer
 	ioError  func(err error)
 	fec      *rsyncwire.Buffer
-	excl     *filterRuleList
+	excl     *rsyncfilter.List
 	uidMap   map[int32]string
 	gidMap   map[int32]string
 	fileList *fileList
@@ -162,7 +163,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	}
 	// st.logger.Printf("flags for %q: %v", name, flags)
 
-	if s.excl.matches(name) {
+	if s.excl.Matches(name) {
 		return filepath.SkipDir
 	}
 
@@ -319,7 +320,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 }
 
 // rsync/flist.c:send_file_list
-func (st *Transfer) SendFileList(localDir string, paths []string, excl *filterRuleList) (*fileList, error) {
+func (st *Transfer) SendFileList(localDir string, paths []string, excl *rsyncfilter.List) (*fileList, error) {
 	var fileList fileList
 	fec := &rsyncwire.Buffer{}
 

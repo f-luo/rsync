@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncstats"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
@@ -31,9 +32,9 @@ func (st *Transfer) handleStats(crd *rsyncwire.CountingReader, cwr *rsyncwire.Co
 }
 
 // rsync/main.c:client_run am_sender
-func (st *Transfer) Do(crd *rsyncwire.CountingReader, cwr *rsyncwire.CountingWriter, modPath string, paths []string, exclusionList *filterRuleList) (*rsyncstats.TransferStats, error) {
+func (st *Transfer) Do(crd *rsyncwire.CountingReader, cwr *rsyncwire.CountingWriter, modPath string, paths []string, exclusionList *rsyncfilter.List) (*rsyncstats.TransferStats, error) {
 	if exclusionList == nil {
-		exclusionList = &filterRuleList{}
+		exclusionList = rsyncfilter.New()
 	}
 
 	// “Update exchange” as per
