@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"unicode"
 
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/version"
 )
@@ -269,6 +270,11 @@ type Options struct {
 	am_server            int
 	am_sender            int
 	am_daemon            int
+
+	// filter_list accumulates --exclude / --include / --exclude-from /
+	// --include-from rules in command-line order. nil until the first
+	// such flag is seen; rsyncfilter.Send treats nil as empty.
+	filter_list *rsyncfilter.List
 
 	daemon_bwlimit int
 	config_file    string
@@ -627,6 +633,23 @@ func (o *Options) Server() bool               { return o.am_server != 0 }
 func (o *Options) Daemon() bool               { return o.am_daemon != 0 }
 func (o *Options) ConnectTimeoutSeconds() int { return o.connect_timeout }
 func (o *Options) AlwaysChecksum() bool       { return o.always_checksum != 0 }
+
+// FilterList returns the accumulated --exclude/--include/--*-from
+// rules, or nil if no such flags were passed. Callers forwarding the
+// list on the wire can pass nil directly to rsyncfilter.Send.
+func (o *Options) FilterList() *rsyncfilter.List { return o.filter_list }
+
+// SetFilterList attaches an externally-constructed filter list. Used
+// by the daemon receiver path to hand the filter list it read off
+// the wire to the rest of the pipeline.
+func (o *Options) SetFilterList(l *rsyncfilter.List) { o.filter_list = l }
+
+func (o *Options) ensureFilterList() *rsyncfilter.List {
+	if o.filter_list == nil {
+		o.filter_list = rsyncfilter.New()
+	}
+	return o.filter_list
+}
 
 func (o *Options) daemonTable() []poptOption {
 	return []poptOption{
@@ -993,12 +1016,41 @@ func ParseArguments(osenv *rsyncos.Env, args []string) (*Context, error) {
 
 			return &pc, nil
 
-		case OPT_FILTER,
-			OPT_EXCLUDE,
-			OPT_INCLUDE,
-			OPT_INCLUDE_FROM,
-			OPT_EXCLUDE_FROM:
+		case OPT_FILTER:
+			// The full --filter grammar (:merge, .dir-merge, P/S/R
+			// modifiers) is deferred; see doc/filter-support.md.
 			return nil, errNotYetImplemented
+
+		case OPT_EXCLUDE:
+			r, err := rsyncfilter.ParseExclude(pc.poptGetOptArg())
+			if err != nil {
+				return nil, fmt.Errorf("--exclude: %v", err)
+			}
+			opts.ensureFilterList().Add(r)
+
+		case OPT_INCLUDE:
+			r, err := rsyncfilter.ParseInclude(pc.poptGetOptArg())
+			if err != nil {
+				return nil, fmt.Errorf("--include: %v", err)
+			}
+			opts.ensureFilterList().Add(r)
+
+		case OPT_EXCLUDE_FROM, OPT_INCLUDE_FROM:
+			path := pc.poptGetOptArg()
+			f, err := os.Open(path)
+			if err != nil {
+				return nil, err
+			}
+			defaultInclude := opt == OPT_INCLUDE_FROM
+			err = opts.ensureFilterList().AddFromReader(f, defaultInclude)
+			f.Close()
+			if err != nil {
+				flag := "--exclude-from"
+				if defaultInclude {
+					flag = "--include-from"
+				}
+				return nil, fmt.Errorf("%s=%s: %v", flag, path, err)
+			}
 
 		case 'a':
 			if opts.recurse == 0 {
