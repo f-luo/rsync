@@ -430,6 +430,7 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 			PreserveSpecials: opts.PreserveSpecials(),
 			PreserveTimes:    opts.PreserveMTimes(),
 			// TODO: PreserveHardlinks: opts.PreserveHardlinks,
+			// FilterList is populated below from the wire.
 		},
 		Dest: module.Path,
 		Env: &rsyncos.Env{
@@ -479,13 +480,17 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 		return fmt.Errorf("support for hard links not yet implemented")
 	}
 
-	if opts.DeleteMode() {
-		// receive the exclusion list (openrsync’s is always empty)
-		exclusionList, err := rsyncfilter.Recv(c)
-		if err != nil {
-			return err
-		}
-		s.logger.Printf("exclusion list read (entries: %d)", len(exclusionList.Filters))
+	// The client always sends a filter list (often empty). Read it
+	// unconditionally to keep the protocol in lockstep; the list is
+	// authoritative over anything the server may have parsed from argv
+	// (see doc/filter-support.md §10).
+	exclusionList, err := rsyncfilter.Recv(c)
+	if err != nil {
+		return err
+	}
+	rt.Opts.FilterList = exclusionList
+	if opts.Verbose() {
+		s.logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
 	}
 
 	// receive file list

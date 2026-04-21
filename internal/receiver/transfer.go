@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/gokrazy/rsync/internal/log"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
@@ -23,6 +24,11 @@ type TransferOpts struct {
 	PreserveSpecials  bool
 	PreserveTimes     bool
 	PreserveHardlinks bool
+
+	// FilterList is the exclude/include rule list in command-line
+	// order (client side) or as received over the wire (daemon
+	// side). nil means no rules; all paths pass through.
+	FilterList *rsyncfilter.List
 }
 
 type Transfer struct {
