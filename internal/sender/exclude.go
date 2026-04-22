@@ -353,4 +353,3 @@ func matchClass(p []byte, c byte) (matched bool, size int) {
 	}
 	return false, 0
 }
-
