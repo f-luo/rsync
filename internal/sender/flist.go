@@ -72,7 +72,7 @@ type scopedWalker struct {
 	ioError   func(err error)
 	conn      *rsyncwire.Conn
 	fec       *rsyncwire.Buffer
-	excl      *filterRuleList
+	excl      *FilterRuleList
 	uidMap    map[int32]string
 	gidMap    map[int32]string
 	fileList  *fileList
@@ -323,7 +323,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 }
 
 // rsync/flist.c:send_file_list
-func (st *Transfer) SendFileList(localDir string, paths []string, excl *filterRuleList) (*fileList, error) {
+func (st *Transfer) SendFileList(localDir string, paths []string, excl *FilterRuleList) (*fileList, error) {
 	var fileList fileList
 	fec := &rsyncwire.Buffer{}
 

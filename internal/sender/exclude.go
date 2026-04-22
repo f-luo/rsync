@@ -10,12 +10,12 @@ import (
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
-type filterRuleList struct {
+type FilterRuleList struct {
 	Filters []*filterRule
 }
 
 // exclude.c:add_rule
-func (l *filterRuleList) addRule(fr *filterRule) {
+func (l *FilterRuleList) addRule(fr *filterRule) {
 	l.Filters = append(l.Filters, fr)
 }
 
@@ -25,7 +25,7 @@ func (l *filterRuleList) addRule(fr *filterRule) {
 // correctly with isDir.
 //
 // exclude.c:check_filter
-func (l *filterRuleList) matches(name string) bool {
+func (l *FilterRuleList) matches(name string) bool {
 	include, matched := l.Match(name, false)
 	return matched && !include
 }
@@ -36,7 +36,7 @@ func (l *filterRuleList) matches(name string) bool {
 // case include defaults to true (rsync's default-include fall-through).
 //
 // exclude.c:check_filter
-func (l *filterRuleList) Match(path string, isDir bool) (include, matched bool) {
+func (l *FilterRuleList) Match(path string, isDir bool) (include, matched bool) {
 	for _, fr := range l.Filters {
 		if fr.matches(path, isDir) {
 			return fr.flag&filtruleInclude != 0, true
@@ -46,8 +46,8 @@ func (l *filterRuleList) Match(path string, isDir bool) (include, matched bool) 
 }
 
 // exclude.c:recv_filter_list
-func RecvFilterList(c *rsyncwire.Conn) (*filterRuleList, error) {
-	var l filterRuleList
+func RecvFilterList(c *rsyncwire.Conn) (*FilterRuleList, error) {
+	var l FilterRuleList
 	const exclusionListEnd = 0
 	for {
 		length, err := c.ReadInt32()
@@ -75,7 +75,7 @@ func RecvFilterList(c *rsyncwire.Conn) (*filterRuleList, error) {
 // so that a peer's recv_filter_list re-parses the same flags.
 //
 // exclude.c:send_filter_list
-func SendFilterList(c *rsyncwire.Conn, l *filterRuleList) error {
+func SendFilterList(c *rsyncwire.Conn, l *FilterRuleList) error {
 	if l != nil {
 		for _, fr := range l.Filters {
 			text := fr.canonical()
@@ -92,9 +92,9 @@ func SendFilterList(c *rsyncwire.Conn, l *filterRuleList) error {
 
 // ParseFilterRules parses rules in XFLG_OLD_PREFIXES form — the same
 // strings rsyncopts.Options.FilterRules returns — into a
-// filterRuleList suitable for Match and SendFilterList.
-func ParseFilterRules(rules []string) (*filterRuleList, error) {
-	l := &filterRuleList{}
+// FilterRuleList suitable for Match and SendFilterList.
+func ParseFilterRules(rules []string) (*FilterRuleList, error) {
+	l := &FilterRuleList{}
 	for _, line := range rules {
 		fr, err := parseFilter(line)
 		if err != nil {
@@ -113,7 +113,7 @@ func ParseFilterRules(rules []string) (*filterRuleList, error) {
 // include) vs --exclude-from (defaults exclude).
 //
 // exclude.c:parse_filter_file
-func (l *filterRuleList) AddFromReader(r io.Reader, defaultInclude bool) error {
+func (l *FilterRuleList) AddFromReader(r io.Reader, defaultInclude bool) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")

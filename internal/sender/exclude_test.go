@@ -11,18 +11,18 @@ import (
 // singleRule parses line and returns a list containing just that
 // rule, used to assert parseFilter produces rules whose Match
 // behavior is correct — without reaching into rule internals.
-func singleRule(t *testing.T, line string) *filterRuleList {
+func singleRule(t *testing.T, line string) *FilterRuleList {
 	t.Helper()
 	fr, err := parseFilter(line)
 	if err != nil {
 		t.Fatalf("parseFilter(%q): %v", line, err)
 	}
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	l.addRule(fr)
 	return l
 }
 
-func assertMatch(t *testing.T, l *filterRuleList, path string, isDir, wantInclude, wantMatched bool) {
+func assertMatch(t *testing.T, l *FilterRuleList, path string, isDir, wantInclude, wantMatched bool) {
 	t.Helper()
 	inc, matched := l.Match(path, isDir)
 	if inc != wantInclude || matched != wantMatched {
@@ -39,7 +39,7 @@ func TestParseExcludeInclude(t *testing.T) {
 }
 
 func TestParseReset(t *testing.T) {
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	a, _ := parseFilter("- a")
 	b, _ := parseFilter("- b")
 	reset, _ := parseFilter("!")
@@ -66,7 +66,7 @@ func TestMatchDirectoryOnly(t *testing.T) {
 }
 
 func TestMatchFirstRuleWins(t *testing.T) {
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	inc, _ := parseFilter("+ *.go")
 	ex, _ := parseFilter("- *")
 	l.addRule(inc)
@@ -169,7 +169,7 @@ func TestCanonicalRoundtrip(t *testing.T) {
 // a future canonical-format change that preserves matching shouldn't
 // break the test.
 func TestSendRecvRoundtrip(t *testing.T) {
-	orig := &filterRuleList{}
+	orig := &FilterRuleList{}
 	for _, line := range []string{
 		"- *.log",
 		"+ /keep.txt",
@@ -237,7 +237,7 @@ func TestAddFromReaderSkipsCommentsAndBlanks(t *testing.T) {
 
 *.log
 `
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	if err := l.AddFromReader(strings.NewReader(input), false); err != nil {
 		t.Fatal(err)
 	}
@@ -247,13 +247,13 @@ func TestAddFromReaderSkipsCommentsAndBlanks(t *testing.T) {
 }
 
 func TestAddFromReaderDefaultSign(t *testing.T) {
-	ex := &filterRuleList{}
+	ex := &FilterRuleList{}
 	if err := ex.AddFromReader(strings.NewReader("a\nb\n"), false); err != nil {
 		t.Fatal(err)
 	}
 	assertMatch(t, ex, "a", false, false, true)
 
-	inc := &filterRuleList{}
+	inc := &FilterRuleList{}
 	if err := inc.AddFromReader(strings.NewReader("a\n"), true); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestAddFromReaderDefaultSign(t *testing.T) {
 
 func TestAddFromReaderHonorsExplicitPrefixes(t *testing.T) {
 	input := "+ keep.go\n- drop.go\n"
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	if err := l.AddFromReader(strings.NewReader(input), false); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestAddFromReaderHonorsExplicitPrefixes(t *testing.T) {
 }
 
 func TestAddFromReaderStripsCRLF(t *testing.T) {
-	l := &filterRuleList{}
+	l := &FilterRuleList{}
 	if err := l.AddFromReader(strings.NewReader("*.log\r\n"), false); err != nil {
 		t.Fatal(err)
 	}

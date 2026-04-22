@@ -32,9 +32,9 @@ func (st *Transfer) handleStats(crd *rsyncwire.CountingReader, cwr *rsyncwire.Co
 }
 
 // rsync/main.c:client_run am_sender
-func (st *Transfer) Do(crd *rsyncwire.CountingReader, cwr *rsyncwire.CountingWriter, modPath string, paths []string, exclusionList *filterRuleList) (*rsyncstats.TransferStats, error) {
+func (st *Transfer) Do(crd *rsyncwire.CountingReader, cwr *rsyncwire.CountingWriter, modPath string, paths []string, exclusionList *FilterRuleList) (*rsyncstats.TransferStats, error) {
 	if exclusionList == nil {
-		exclusionList = &filterRuleList{}
+		exclusionList = &FilterRuleList{}
 	}
 
 	// “Update exchange” as per
