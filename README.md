@@ -173,6 +173,30 @@ recent choices.
 * xattrs (including acls) was introduced in rsync protocol 30, so is currently
   not supported.
 
+### Filter rules
+
+Include/exclude filters are supported via the following flags:
+
+* `--exclude=PATTERN`
+* `--include=PATTERN`
+* `--exclude-from=FILE`
+* `--include-from=FILE`
+
+Patterns follow rsync's standard syntax: shell globs (`*`, `?`, `[…]`), `**`
+for matching across `/` separators, a leading `/` to anchor to the transfer
+root, and a trailing `/` to restrict a rule to directories. First-match-wins
+resolution is applied in the order rules are supplied. When `--delete` is in
+effect, paths that match an exclude rule are protected from deletion on the
+receiver.
+
+Not yet supported (deferred):
+
+* `--filter` / `-F` merge rules and per-directory filter files (e.g.
+  `:include`, `.rsync-filter`)
+* `--cvs-exclude` / `-C`
+* `--delete-excluded`
+* `--from0` (null-terminated pattern files)
+
 ## Supported environments and privilege dropping
 
 Supported environments:

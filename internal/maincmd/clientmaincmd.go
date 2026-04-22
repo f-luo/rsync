@@ -304,13 +304,14 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			osenv.Logf("sender(paths=%q)", paths)
 		}
 
-		// Send our filter list to the peer. The wire flow is
-		// always client→server; the receiver uses it for
-		// --delete gating, and peer rsync implementations
-		// expect the terminator even when no rules were given.
-		// Send(nil) emits an empty list.
-		if err := rsyncfilter.Send(c, opts.FilterList()); err != nil {
-			return nil, err
+		// When we are the sender, filters are applied locally
+		// during the walk; the peer (receiver) only needs the
+		// list in --delete mode to protect excluded dest files.
+		// The gate mirrors rsyncd.handleConnReceiver.
+		if opts.DeleteMode() {
+			if err := rsyncfilter.Send(c, opts.FilterList()); err != nil {
+				return nil, err
+			}
 		}
 
 		stats, err := st.Do(crd, cwr, "/", paths, opts.FilterList())

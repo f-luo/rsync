@@ -41,7 +41,7 @@ func Recv(c *rsyncwire.Conn) (*List, error) {
 // that a receiver's Parse reconstructs the same flag set.
 func Send(c *rsyncwire.Conn, l *List) error {
 	if l != nil {
-		for _, r := range l.Filters {
+		for _, r := range l.filters {
 			text := r.Canonical()
 			if err := c.WriteInt32(int32(len(text))); err != nil {
 				return err

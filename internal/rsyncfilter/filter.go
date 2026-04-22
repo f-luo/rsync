@@ -51,23 +51,23 @@ func (r *Rule) Pattern() string { return r.pattern }
 // significant: the first rule that matches a given path determines
 // the outcome.
 type List struct {
-	Filters []*Rule
+	filters []*Rule
 }
 
 // New returns an empty filter list.
 func New() *List { return &List{} }
 
 // Len returns the number of rules currently in the list.
-func (l *List) Len() int { return len(l.Filters) }
+func (l *List) Len() int { return len(l.filters) }
 
 // Add appends r to the list. If r is the '!' reset rule, all
 // previously added rules are removed and r itself is discarded.
 func (l *List) Add(r *Rule) {
 	if r.flag&filtruleClearList != 0 {
-		l.Filters = l.Filters[:0]
+		l.filters = l.filters[:0]
 		return
 	}
-	l.Filters = append(l.Filters, r)
+	l.filters = append(l.filters, r)
 }
 
 // Match tests path against the list.
@@ -79,7 +79,7 @@ func (l *List) Add(r *Rule) {
 // some rule explicitly matched; when matched is false, path fell
 // through the list (default include).
 func (l *List) Match(path string, isDir bool) (include, matched bool) {
-	for _, r := range l.Filters {
+	for _, r := range l.filters {
 		if r.matchesPath(path, isDir) {
 			return r.IsInclude(), true
 		}

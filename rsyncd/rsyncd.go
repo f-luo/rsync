@@ -480,17 +480,20 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 		return fmt.Errorf("support for hard links not yet implemented")
 	}
 
-	// The client always sends a filter list (often empty). Read it
-	// unconditionally to keep the protocol in lockstep; the list is
-	// authoritative over anything the server may have parsed from argv
-	// (see doc/filter-support.md §10).
-	exclusionList, err := rsyncfilter.Recv(c)
-	if err != nil {
-		return err
-	}
-	rt.Opts.FilterList = exclusionList
-	if opts.Verbose() {
-		s.logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
+	// Only read the filter list when --delete is in play: that is the
+	// flow where peers (tridge, openrsync) reliably send one, and the
+	// only flow where the server-receiver needs it (as a --delete
+	// guard — see doc/filter-support.md §9). Reading unconditionally
+	// deadlocks against openrsync, which omits the list otherwise.
+	if opts.DeleteMode() {
+		exclusionList, err := rsyncfilter.Recv(c)
+		if err != nil {
+			return err
+		}
+		rt.Opts.FilterList = exclusionList
+		if opts.Verbose() {
+			s.logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
+		}
 	}
 
 	// receive file list
@@ -534,7 +537,7 @@ func (s *Server) handleConnSender(module *Module, crd *rsyncwire.CountingReader,
 	if err != nil {
 		return err
 	}
-	st.Logger.Printf("exclusion list read (entries: %d)", len(exclusionList.Filters))
+	st.Logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
 
 	stats, err := st.Do(crd, cwr, module.Path, paths, exclusionList)
 	if err != nil {
