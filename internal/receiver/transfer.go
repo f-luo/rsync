@@ -10,6 +10,13 @@ import (
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
+// FilterList is the subset of the filter rule list the receiver
+// consults. An excluded path must be protected from --delete; see
+// exclude.c:check_filter. *sender.FilterRuleList satisfies it.
+type FilterList interface {
+	Match(path string, isDir bool) (include, matched bool)
+}
+
 // TransferOpts is a subset of Opts which is required for implementing a receiver.
 type TransferOpts struct {
 	Verbose  bool
@@ -28,6 +35,11 @@ type TransferOpts struct {
 	PreserveHardlinks bool
 	IgnoreTimes       bool
 	AlwaysChecksum    bool
+
+	// FilterList is the exclude/include list received from the
+	// peer (server-receiver) or accumulated from argv
+	// (client-receiver). nil means no rules; default-include.
+	FilterList FilterList
 
 	InfoGTE  func(rsyncopts.InfoLevel, uint16) bool
 	DebugGTE func(rsyncopts.DebugLevel, uint16) bool

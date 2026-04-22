@@ -295,6 +295,14 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 	}
 	c.Reader = crd
 
+	// Build the filter list once from argv. Both roles use it:
+	// client-sender applies it locally when walking, and either
+	// role sends it over the wire so the peer can mirror it.
+	filterList, err := sender.ParseFilterRules(opts.FilterRules())
+	if err != nil {
+		return nil, fmt.Errorf("parsing filter rules: %v", err)
+	}
+
 	if opts.Sender() {
 		st := &sender.Transfer{
 			Logger:   osenv.Logger(),
@@ -325,7 +333,15 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			}
 		}
 
-		stats, err := st.Do(crd, cwr, FileSystemRoot, paths, nil)
+		// Send our filter list to the peer. The wire flow is
+		// always client → server; the server-receiver uses it
+		// for --delete gating, and peers expect the terminator
+		// even when no rules were given.
+		if err := sender.SendFilterList(c, filterList); err != nil {
+			return nil, err
+		}
+
+		stats, err := st.Do(crd, cwr, FileSystemRoot, paths, filterList)
 		if err != nil {
 			return nil, err
 		}
@@ -354,6 +370,7 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			PreserveHardlinks: opts.PreserveHardLinks(),
 			IgnoreTimes:       opts.IgnoreTimes(),
 			AlwaysChecksum:    opts.AlwaysChecksum(),
+			FilterList:        filterList,
 
 			InfoGTE:  opts.InfoGTE,
 			DebugGTE: opts.DebugGTE,
@@ -385,17 +402,18 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 		}
 	}
 
-	for _, rule := range opts.FilterRules() {
-		c.WriteInt32(int32(len(rule)))
-		c.WriteString(rule)
-	}
-	const exclusionListEnd = 0
-	if err := c.WriteInt32(exclusionListEnd); err != nil {
+	// As the receiver we send the accumulated --exclude /
+	// --include / --*-from rules up to the sender.
+	if err := sender.SendFilterList(c, filterList); err != nil {
 		return nil, err
 	}
 
 	if opts.DebugGTE(rsyncopts.DEBUG_RECV, 1) {
-		osenv.Logf("exclusion list sent")
+		n := 0
+		if filterList != nil {
+			n = len(filterList.Filters)
+		}
+		osenv.Logf("exclusion list sent (entries: %d)", n)
 	}
 
 	// receive file list
