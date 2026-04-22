@@ -16,6 +16,12 @@ type FilterRuleList struct {
 
 // exclude.c:add_rule
 func (l *FilterRuleList) addRule(fr *filterRule) {
+	// A "!" rule clears the list and is not itself retained —
+	// mirrors exclude.c:parse_rule_tok when filtruleClearList is set.
+	if fr.flag&filtruleClearList != 0 {
+		l.Filters = nil
+		return
+	}
 	l.Filters = append(l.Filters, fr)
 }
 
@@ -37,6 +43,9 @@ func (l *FilterRuleList) matches(name string) bool {
 //
 // exclude.c:check_filter
 func (l *FilterRuleList) Match(path string, isDir bool) (include, matched bool) {
+	if l == nil {
+		return true, false
+	}
 	for _, fr := range l.Filters {
 		if fr.matches(path, isDir) {
 			return fr.flag&filtruleInclude != 0, true

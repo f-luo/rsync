@@ -39,16 +39,33 @@ func TestParseExcludeInclude(t *testing.T) {
 }
 
 func TestParseReset(t *testing.T) {
+	reset, _ := parseFilter("!")
+	if reset.flag&filtruleClearList == 0 {
+		t.Fatalf("parseFilter(!) did not set clear-list flag")
+	}
+}
+
+func TestAddRuleResetDropsList(t *testing.T) {
 	l := &FilterRuleList{}
 	a, _ := parseFilter("- a")
 	b, _ := parseFilter("- b")
 	reset, _ := parseFilter("!")
+	c, _ := parseFilter("- c")
 	l.addRule(a)
 	l.addRule(b)
-	// The reset rule carries filtruleClearList; the caller (rsyncopts
-	// / AddFromReader) empties the list when it sees one.
-	if reset.flag&filtruleClearList == 0 {
-		t.Fatalf("parseFilter(!) did not set clear-list flag")
+	l.addRule(reset)
+	l.addRule(c)
+	// After "!", only the rules added after it should remain.
+	if len(l.Filters) != 1 {
+		t.Fatalf("after reset, len(Filters) = %d, want 1", len(l.Filters))
+	}
+	// "a" must no longer match — previously-added rules are gone.
+	if inc, matched := l.Match("a", false); matched || !inc {
+		t.Errorf("Match(a) = (%v, %v), want (true, false) after reset", inc, matched)
+	}
+	// "c" is still excluded.
+	if inc, matched := l.Match("c", false); !matched || inc {
+		t.Errorf("Match(c) = (%v, %v), want (false, true)", inc, matched)
 	}
 }
 
@@ -119,6 +136,11 @@ func TestWildmatchCharClass(t *testing.T) {
 		{"[!ab]", "x", true},
 		{"[!ab]", "a", false},
 		{"[^ab]", "a", false}, // ^ synonym for !
+		// Trailing '-' is literal (no closing bound) — the range
+		// check needs p[i+2] != ']'.
+		{"[a-]", "-", true},
+		{"[a-]", "a", true},
+		{"[a-]", "b", false},
 	}
 	for _, c := range cases {
 		if got := wildmatch(c.pat, c.in); got != c.want {
