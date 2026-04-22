@@ -44,10 +44,8 @@ func (rt *Transfer) deleteFiles(fileList []*File) error {
 			if findInFileList(fileList, path) {
 				return nil
 			}
-			// Protect excluded paths from deletion: if a filter
-			// rule matches as exclude, the sender isn't sending
-			// it, but the receiver must not delete it either.
-			// exclude.c:check_filter.
+			// Don’t delete files or directories that are excluded by the filters.
+			// If a filter explicitly excludes a path, we must leave it untouched.
 			if path != "." && rt.FilterList != nil {
 				include, matched := rt.FilterList.Match(path, info.IsDir())
 				if matched && !include {
