@@ -145,8 +145,17 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	}
 	// st.logger.Printf("flags for %q: %v", name, flags)
 
-	if s.excl.matches(name) {
-		return filepath.SkipDir
+	// The transfer root (".") is always transmitted: rules describe
+	// which descendants to include, not whether the root itself is
+	// eligible — and an overly broad rule like "*" would otherwise
+	// prune the whole tree before we descended into it.
+	if path != "." {
+		if include, _ := s.excl.Match(name, d.IsDir()); !include {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 	}
 
 	s.fileList.Files = append(s.fileList.Files, file{
