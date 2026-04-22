@@ -718,6 +718,7 @@ func (o *Options) PreserveHardLinks() bool    { return o.preserve_hard_links != 
 func (o *Options) Recurse() bool              { return o.recurse != 0 }
 func (o *Options) Verbose() bool              { return o.verbose != 0 }
 func (o *Options) DeleteMode() bool           { return o.delete_mode != 0 }
+func (o *Options) DeleteExcluded() bool       { return o.delete_excluded != 0 }
 func (o *Options) Sender() bool               { return o.am_sender != 0 }
 func (o *Options) SetSender()                 { o.am_sender = 1 }
 func (o *Options) LocalServer() bool          { return o.local_server != 0 }
@@ -945,7 +946,7 @@ func (o *Options) gokrazyTable() []poptOption {
 		//{"delete-during", "", POPT_ARG_VAL, &o.delete_during, 1},
 		//{"delete-delay", "", POPT_ARG_VAL, &o.delete_during, 2},
 		//{"delete-after", "", POPT_ARG_NONE, &o.delete_after, 0},
-		//{"delete-excluded", "", POPT_ARG_NONE, &o.delete_excluded, 0},
+		{"delete-excluded", "", POPT_ARG_NONE, &o.delete_excluded, 0},
 		//{"delete-missing-args", "", POPT_BIT_SET, &o.missing_args, 2},
 		//{"ignore-missing-args", "", POPT_BIT_SET, &o.missing_args, 1},
 		//{"remove-sent-files", "", POPT_ARG_VAL, &o.remove_source_files, 2}, /* deprecated */
@@ -1632,14 +1633,6 @@ func (pc *Context) ParseArguments(osenv *rsyncos.Env, args []string) error {
 
 	if opts.info[INFO_NAME] >= 1 && opts.stdout_format == "" {
 		opts.stdout_format = "%n%L"
-	}
-
-	// The receiver's delete loop unconditionally protects filter-
-	// excluded paths. If a peer requests --delete-excluded we must
-	// fail loudly rather than silently ignore the flag and retain
-	// files the caller expects to be removed.
-	if opts.delete_excluded != 0 {
-		return fmt.Errorf("--delete-excluded is not supported by gokrazy/rsync")
 	}
 
 	return nil

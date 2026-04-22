@@ -434,6 +434,7 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 			Progress: opts.Progress(),
 
 			DeleteMode:       opts.DeleteMode(),
+			DeleteExcluded:   opts.DeleteExcluded(),
 			PreserveGid:      opts.PreserveGid(),
 			PreserveUid:      opts.PreserveUid(),
 			PreserveLinks:    opts.PreserveLinks(),

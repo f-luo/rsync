@@ -23,6 +23,7 @@ type TransferOpts struct {
 	Progress bool
 
 	DeleteMode        bool
+	DeleteExcluded    bool
 	PreserveGid       bool
 	PreserveUid       bool
 	PreserveLinks     bool

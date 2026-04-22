@@ -240,15 +240,28 @@ func TestFilterFromFile(t *testing.T) {
 	}
 }
 
-func TestParseArgumentsRejectsDeleteExcluded(t *testing.T) {
+func TestParseArgumentsAcceptsDeleteExcluded(t *testing.T) {
 	osenv := rsyncostest.New(t)
 	pc := NewContext(NewOptions(osenv))
-	err := pc.ParseArguments(osenv, []string{"--delete", "--delete-excluded"})
-	if err == nil {
-		t.Fatalf("ParseArguments unexpectedly accepted --delete-excluded")
+	if err := pc.ParseArguments(osenv, []string{"--delete", "--delete-excluded"}); err != nil {
+		t.Fatalf("ParseArguments rejected --delete-excluded: %v", err)
 	}
-	if !strings.Contains(err.Error(), "--delete-excluded is not supported") {
-		t.Errorf("unexpected error: %v", err)
+	if !pc.Options.DeleteMode() {
+		t.Errorf("DeleteMode() = false, want true")
+	}
+	if !pc.Options.DeleteExcluded() {
+		t.Errorf("DeleteExcluded() = false, want true")
+	}
+}
+
+func TestParseArgumentsDeleteExcludedDefaultsOff(t *testing.T) {
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	if err := pc.ParseArguments(osenv, []string{"--delete"}); err != nil {
+		t.Fatalf("ParseArguments: %v", err)
+	}
+	if pc.Options.DeleteExcluded() {
+		t.Errorf("DeleteExcluded() = true without --delete-excluded, want false")
 	}
 }
 

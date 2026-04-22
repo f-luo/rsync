@@ -359,6 +359,7 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			Progress: opts.Progress(),
 
 			DeleteMode:        opts.DeleteMode(),
+			DeleteExcluded:    opts.DeleteExcluded(),
 			PreserveGid:       opts.PreserveGid(),
 			PreserveUid:       opts.PreserveUid(),
 			PreserveLinks:     opts.PreserveLinks(),

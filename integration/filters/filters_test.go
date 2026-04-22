@@ -283,3 +283,27 @@ func TestDeleteProtectsExcluded(t *testing.T) {
 	)
 	assertFiles(t, list(t, dst), []string{"drop.log", "keep.txt"})
 }
+
+// TestDeleteExcludedRemovesFilterExcluded: with --delete-excluded the
+// receiver must remove destination files that match an exclude rule,
+// undoing the protection normally afforded by --delete alone. Same
+// pull-mode setup as TestDeleteProtectsExcluded, inverted assertion.
+func TestDeleteExcludedRemovesFilterExcluded(t *testing.T) {
+	t.Parallel()
+	src := t.TempDir()
+	writeTree(t, src, map[string]string{"keep.txt": "keep"})
+	dst := t.TempDir()
+	writeTree(t, dst, map[string]string{
+		"keep.txt":  "stale",
+		"drop.log":  "should-be-deleted",
+		"other.txt": "deletable",
+	})
+	srv := rsynctest.New(t, rsynctest.InteropModule(src))
+	rsynctest.Run(t,
+		"gokr-rsync", "-a", "--delete", "--delete-excluded",
+		"--exclude", "*.log",
+		"rsync://localhost:"+srv.Port+"/interop/",
+		dst,
+	)
+	assertFiles(t, list(t, dst), []string{"keep.txt"})
+}
