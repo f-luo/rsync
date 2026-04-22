@@ -1,16 +1,15 @@
 // Package filters_test exercises --exclude, --include, --exclude-from,
-// and --include-from end-to-end through the gokrazy client/daemon
-// pair. The tests speak to behavior, not wire bytes: "given these
-// filter flags, what lands on disk?". Wire-format roundtrips are
-// unit-tested in internal/sender.
+// and --include-from end-to-end through the gokrazy client/daemon pair.
+// Behavior under test: "given these flags, what lands on disk?". Wire
+// roundtrips are unit-tested in internal/sender.
 package filters_test
 
 import (
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -23,27 +22,42 @@ func TestMain(m *testing.M) {
 	}
 }
 
-// fixture creates a source tree with a mix of names designed to
-// exercise every filter-rule shape: basename globs (*.log), anchored
-// rules (/top), dir-only rules (build/), and nested paths that let
-// us tell apart "file skipped" from "directory pruned".
-func fixture(t *testing.T, root string) {
+// fixtureFiles covers every filter-rule shape: basename globs (*.log),
+// anchored rules (/top-only vs sub/top-only), dir-only rules (build/),
+// and nested paths that distinguish "file skipped" from "dir pruned".
+var fixtureFiles = map[string]string{
+	"keep.txt":               "keep",
+	"drop.log":               "drop",
+	"nested/keep.go":         "ok",
+	"nested/drop.log":        "drop",
+	"nested/deeper/keep.md":  "ok",
+	"nested/deeper/drop.log": "drop",
+	"build/out.bin":          "build",
+	"build/nested/out.bin":   "build",
+	"src/a.go":               "src",
+	"src/a.tmp":              "tmp",
+	"top-only":               "anchored",
+	"sub/top-only":           "unanchored copy",
+}
+
+var allFixtureFiles = []string{
+	"build/nested/out.bin",
+	"build/out.bin",
+	"drop.log",
+	"keep.txt",
+	"nested/deeper/drop.log",
+	"nested/deeper/keep.md",
+	"nested/drop.log",
+	"nested/keep.go",
+	"src/a.go",
+	"src/a.tmp",
+	"sub/top-only",
+	"top-only",
+}
+
+func writeTree(t *testing.T, root string, files map[string]string) {
 	t.Helper()
-	entries := map[string]string{
-		"keep.txt":               "keep",
-		"drop.log":               "drop",
-		"nested/keep.go":         "ok",
-		"nested/drop.log":        "drop",
-		"nested/deeper/keep.md":  "ok",
-		"nested/deeper/drop.log": "drop",
-		"build/out.bin":          "build",
-		"build/nested/out.bin":   "build",
-		"src/a.go":               "src",
-		"src/a.tmp":              "tmp",
-		"top-only":               "anchored",
-		"sub/top-only":           "unanchored copy",
-	}
-	for rel, content := range entries {
+	for rel, content := range files {
 		full := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -54,19 +68,14 @@ func fixture(t *testing.T, root string) {
 	}
 }
 
-// list walks dst and returns all regular-file relative paths, sorted.
-// Directories are elided so assertions read "these files made it".
-func list(t *testing.T, dst string) []string {
+func list(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
-	err := filepath.Walk(dst, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
 			return err
 		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(dst, path)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
@@ -76,181 +85,130 @@ func list(t *testing.T, dst string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
-func equalSet(got, want []string) string {
-	if len(got) != len(want) {
-		return diffLines(got, want)
+func assertFiles(t *testing.T, got, want []string) {
+	t.Helper()
+	if slices.Equal(got, want) {
+		return
 	}
-	for i := range got {
-		if got[i] != want[i] {
-			return diffLines(got, want)
-		}
-	}
-	return ""
+	t.Fatalf("files mismatch\ngot:\n  %s\nwant:\n  %s",
+		strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 }
 
-func diffLines(got, want []string) string {
-	return "got:\n  " + strings.Join(got, "\n  ") +
-		"\nwant:\n  " + strings.Join(want, "\n  ")
-}
-
-// TestDownloadExcludeBasenameGlob exercises the client-as-receiver /
-// server-as-sender path: the client pushes `- *.log` to the server
-// over the wire; the server must skip those files in its walk.
-func TestDownloadExcludeBasenameGlob(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
+// pullInto serves fixtureFiles over rsyncd and pulls into a fresh dst
+// with the given extra client flags. Returns dst for inspection.
+func pullInto(t *testing.T, flags ...string) string {
+	t.Helper()
+	src := t.TempDir()
+	writeTree(t, src, fixtureFiles)
+	dst := t.TempDir()
 	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--exclude", "*.log",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	want := []string{
-		"build/nested/out.bin",
-		"build/out.bin",
-		"keep.txt",
-		"nested/deeper/keep.md",
-		"nested/keep.go",
-		"src/a.go",
-		"src/a.tmp",
-		"sub/top-only",
-		"top-only",
-	}
-	if diff := equalSet(got, want); diff != "" {
-		t.Fatalf("--exclude '*.log' download mismatch:\n%s", diff)
-	}
+	args := append([]string{"gokr-rsync", "-a"}, flags...)
+	args = append(args, "rsync://localhost:"+srv.Port+"/interop/", dst)
+	rsynctest.Run(t, args...)
+	return dst
 }
 
-// TestDownloadExcludeDirectoryOnly exercises rsync's dir-only rule
-// semantics: `- build/` must prune the whole build/ subtree (both
-// nested files), not merely skip files named "build".
-func TestDownloadExcludeDirectoryOnly(t *testing.T) {
+// TestDownloadFilters exercises the client-as-receiver / server-as-
+// sender path: the client sends filter rules on the wire; the server
+// applies them during its walk. Each case pins the full destination
+// tree so a regression shows up as a readable diff.
+func TestDownloadFilters(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
 
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--exclude", "build/",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	// build/ should be entirely gone; everything else should land.
-	want := []string{
-		"drop.log",
-		"keep.txt",
-		"nested/deeper/drop.log",
-		"nested/deeper/keep.md",
-		"nested/drop.log",
-		"nested/keep.go",
-		"src/a.go",
-		"src/a.tmp",
-		"sub/top-only",
-		"top-only",
+	tests := []struct {
+		name  string
+		flags []string
+		want  []string
+	}{
+		{
+			name: "no-flags-baseline",
+			want: allFixtureFiles,
+		},
+		{
+			name:  "exclude-basename-glob",
+			flags: []string{"--exclude", "*.log"},
+			want: []string{
+				"build/nested/out.bin",
+				"build/out.bin",
+				"keep.txt",
+				"nested/deeper/keep.md",
+				"nested/keep.go",
+				"src/a.go",
+				"src/a.tmp",
+				"sub/top-only",
+				"top-only",
+			},
+		},
+		{
+			// Dir-only rule must prune the whole subtree, not merely
+			// skip files named "build".
+			name:  "exclude-directory-only",
+			flags: []string{"--exclude", "build/"},
+			want: []string{
+				"drop.log",
+				"keep.txt",
+				"nested/deeper/drop.log",
+				"nested/deeper/keep.md",
+				"nested/drop.log",
+				"nested/keep.go",
+				"src/a.go",
+				"src/a.tmp",
+				"sub/top-only",
+				"top-only",
+			},
+		},
+		{
+			// First-match wins: *.go rescued by include before *.tmp
+			// exclude; everything else passes through default-include.
+			name:  "include-before-exclude",
+			flags: []string{"--include", "*.go", "--exclude", "*.tmp"},
+			want: []string{
+				"build/nested/out.bin",
+				"build/out.bin",
+				"drop.log",
+				"keep.txt",
+				"nested/deeper/drop.log",
+				"nested/deeper/keep.md",
+				"nested/drop.log",
+				"nested/keep.go",
+				"src/a.go",
+				"sub/top-only",
+				"top-only",
+			},
+		},
 	}
-	if diff := equalSet(got, want); diff != "" {
-		t.Fatalf("--exclude 'build/' download mismatch:\n%s", diff)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assertFiles(t, list(t, pullInto(t, tc.flags...)), tc.want)
+		})
 	}
 }
 
-// TestDownloadAnchoredRule exercises a leading-slash anchor: `- /top-only`
-// must match the top-level entry but leave sub/top-only alone.
+// TestDownloadAnchoredRule: a leading-slash rule binds to the transfer
+// root, so /top-only drops ./top-only but leaves sub/top-only.
 func TestDownloadAnchoredRule(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--exclude", "/top-only",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	// Anchored rule drops ./top-only but NOT sub/top-only.
+	got := list(t, pullInto(t, "--exclude", "/top-only"))
 	if slices.Contains(got, "top-only") {
 		t.Errorf("anchored rule failed to exclude top-only; got: %v", got)
 	}
 	if !slices.Contains(got, "sub/top-only") {
-		t.Errorf("anchored rule over-matched; sub/top-only should remain; got: %v", got)
-	}
-}
-
-// TestDownloadIncludeBeforeExclude exercises first-match-wins: an
-// include-before-exclude rule should rescue keep.go from `- *.go`.
-func TestDownloadIncludeBeforeExclude(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--include", "*.go",
-		"--exclude", "*.tmp",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	// First-match wins: *.go is kept by the include; *.tmp drops.
-	// All other files pass through (default-include fall-through).
-	want := []string{
-		"build/nested/out.bin",
-		"build/out.bin",
-		"drop.log",
-		"keep.txt",
-		"nested/deeper/drop.log",
-		"nested/deeper/keep.md",
-		"nested/drop.log",
-		"nested/keep.go",
-		"src/a.go",
-		"sub/top-only",
-		"top-only",
-	}
-	if diff := equalSet(got, want); diff != "" {
-		t.Fatalf("include-before-exclude mismatch:\n%s", diff)
+		t.Errorf("anchored rule over-matched; sub/top-only missing; got: %v", got)
 	}
 }
 
 // TestDownloadBroadExcludeStillTransfersRoot pins the transfer-root
-// carve-out in sender/flist.go: even with `--exclude '*'`, the root
-// directory itself must still be transmitted so the destination
-// directory gets created. Without the carve-out, the walker would
-// skip the root itself and the transfer would produce nothing.
+// carve-out in sender/flist.go: --exclude '*' still has to create the
+// destination directory or the transfer produces nothing.
 func TestDownloadBroadExcludeStillTransfersRoot(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--exclude", "*",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	// The root must exist (dst is the just-created transfer root).
+	dst := pullInto(t, "--exclude", "*")
 	info, err := os.Stat(dst)
 	if err != nil {
 		t.Fatalf("--exclude '*' suppressed the transfer root: %v", err)
@@ -258,59 +216,35 @@ func TestDownloadBroadExcludeStillTransfersRoot(t *testing.T) {
 	if !info.IsDir() {
 		t.Fatalf("transfer root is not a directory: %v", info.Mode())
 	}
-	// No regular files should land: '*' prunes every descendant.
 	if got := list(t, dst); len(got) != 0 {
 		t.Errorf("--exclude '*' left files: %v", got)
 	}
 }
 
-// TestDownloadExcludeFromFile exercises --exclude-from: rules read
-// from a file must behave like the same rules on the command line,
-// including comment-skipping and the leading # handling.
+// TestDownloadExcludeFromFile: rules read from a file must behave like
+// the same rules on the command line, including blank-line and leading-
+// '#' comment handling.
 func TestDownloadExcludeFromFile(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	rules := filepath.Join(tmp, "rules.txt")
-	fixture(t, src)
-
-	if err := os.WriteFile(rules, []byte(`# skip noise
-*.log
-
-# and this one
-build/
-`), 0o644); err != nil {
+	rules := filepath.Join(t.TempDir(), "rules.txt")
+	if err := os.WriteFile(rules, []byte("# skip noise\n*.log\n\n# and this\nbuild/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"--exclude-from", rules,
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	for _, p := range got {
-		if strings.HasSuffix(p, ".log") {
-			t.Errorf("--exclude-from didn't drop %s; got: %v", p, got)
-		}
-		if strings.HasPrefix(p, "build/") {
-			t.Errorf("--exclude-from didn't prune build/; got: %v", p)
+	for _, p := range list(t, pullInto(t, "--exclude-from", rules)) {
+		if strings.HasSuffix(p, ".log") || strings.HasPrefix(p, "build/") {
+			t.Errorf("--exclude-from leaked %s", p)
 		}
 	}
 }
 
-// TestUploadLocalFilter exercises the client-as-sender path: the
-// client applies --exclude locally to its own walk, so the server
-// should only receive non-filtered files.
+// TestUploadLocalFilter exercises the client-as-sender path: filters
+// apply to the client's own walk, so only the filtered set reaches the
+// daemon.
 func TestUploadLocalFilter(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
+	src := t.TempDir()
+	writeTree(t, src, fixtureFiles)
+	dst := t.TempDir()
 	srv := rsynctest.New(t, rsynctest.WritableInteropModule(dst))
 	rsynctest.Run(t,
 		"gokr-rsync", "-a",
@@ -319,51 +253,27 @@ func TestUploadLocalFilter(t *testing.T) {
 		src+"/",
 		"rsync://localhost:"+srv.Port+"/interop/",
 	)
-
-	got := list(t, dst)
-	for _, p := range got {
+	for _, p := range list(t, dst) {
 		if strings.HasSuffix(p, ".log") || strings.HasPrefix(p, "build/") {
-			t.Errorf("upload didn't apply filter locally; got: %v", got)
+			t.Errorf("upload leaked %s", p)
 		}
 	}
 }
 
-// TestDeleteProtectsExcluded is the headline --delete interaction:
-// files on the destination that match a filter-exclude rule must not
-// be removed, even though they are not in the sender's file list.
-// This is rsync's "protection" of excluded paths during --delete.
-//
-// Runs as pull (client-as-receiver), which is the flow that honors
-// --delete in gokrazy today; the push-side server-arg forwarding
-// for --delete is commented out in rsyncopts/serveroptions.go.
+// TestDeleteProtectsExcluded: files on the destination matching a
+// filter-exclude rule must survive --delete even though the sender's
+// file list omits them. Runs as pull because push-side --delete arg
+// forwarding is currently disabled in rsyncopts/serveroptions.go.
 func TestDeleteProtectsExcluded(t *testing.T) {
 	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-
-	// Source has only keep.txt; destination starts with keep.txt
-	// plus an extra drop.log that IS filter-excluded and an extra
-	// other.txt that is NOT excluded. --delete should remove
-	// other.txt but leave drop.log alone (protected).
-	if err := os.MkdirAll(src, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, "keep.txt"), []byte("keep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range map[string]string{
+	src := t.TempDir()
+	writeTree(t, src, map[string]string{"keep.txt": "keep"})
+	dst := t.TempDir()
+	writeTree(t, dst, map[string]string{
 		"keep.txt":  "stale",
 		"drop.log":  "protected",
 		"other.txt": "deletable",
-	} {
-		if err := os.WriteFile(filepath.Join(dst, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
+	})
 	srv := rsynctest.New(t, rsynctest.InteropModule(src))
 	rsynctest.Run(t,
 		"gokr-rsync", "-a", "--delete",
@@ -371,48 +281,5 @@ func TestDeleteProtectsExcluded(t *testing.T) {
 		"rsync://localhost:"+srv.Port+"/interop/",
 		dst,
 	)
-
-	got := list(t, dst)
-	want := []string{"drop.log", "keep.txt"}
-	if diff := equalSet(got, want); diff != "" {
-		t.Fatalf("--delete filter protection mismatch:\n%s", diff)
-	}
-}
-
-// TestNoFilterFlagsPreservesBaseline is a regression guard: invoking
-// the client without any filter flags must transfer the entire tree,
-// byte-for-byte identical to the pre-filter-support behavior. This
-// catches regressions where Send/Recv of an empty list accidentally
-// drops something.
-func TestNoFilterFlagsPreservesBaseline(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
-	fixture(t, src)
-
-	srv := rsynctest.New(t, rsynctest.InteropModule(src))
-	rsynctest.Run(t,
-		"gokr-rsync", "-a",
-		"rsync://localhost:"+srv.Port+"/interop/",
-		dst,
-	)
-
-	got := list(t, dst)
-	want := []string{
-		"build/nested/out.bin",
-		"build/out.bin",
-		"drop.log",
-		"keep.txt",
-		"nested/deeper/drop.log",
-		"nested/deeper/keep.md",
-		"nested/drop.log",
-		"nested/keep.go",
-		"src/a.go",
-		"src/a.tmp",
-		"sub/top-only",
-		"top-only",
-	}
-	if diff := equalSet(got, want); diff != "" {
-		t.Fatalf("no-filter baseline drifted:\n%s", diff)
-	}
+	assertFiles(t, list(t, dst), []string{"drop.log", "keep.txt"})
 }
