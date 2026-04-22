@@ -237,6 +237,18 @@ func TestFilterFromFile(t *testing.T) {
 	}
 }
 
+func TestParseArgumentsRejectsDeleteExcluded(t *testing.T) {
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	err := pc.ParseArguments(osenv, []string{"--delete", "--delete-excluded"})
+	if err == nil {
+		t.Fatalf("ParseArguments unexpectedly accepted --delete-excluded")
+	}
+	if !strings.Contains(err.Error(), "--delete-excluded is not supported") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestParseArgumentsRemaining(t *testing.T) {
 	for _, tt := range []struct {
 		args []string

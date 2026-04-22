@@ -1636,5 +1636,13 @@ func (pc *Context) ParseArguments(osenv *rsyncos.Env, args []string) error {
 		opts.stdout_format = "%n%L"
 	}
 
+	// The receiver's delete loop unconditionally protects filter-
+	// excluded paths. If a peer requests --delete-excluded we must
+	// fail loudly rather than silently ignore the flag and retain
+	// files the caller expects to be removed.
+	if opts.delete_excluded != 0 {
+		return fmt.Errorf("--delete-excluded is not supported by gokrazy/rsync")
+	}
+
 	return nil
 }
