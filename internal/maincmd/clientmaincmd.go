@@ -333,12 +333,13 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			}
 		}
 
-		// Send our filter list to the peer. The wire flow is
-		// always client → server; the server-receiver uses it
-		// for --delete gating, and peers expect the terminator
-		// even when no rules were given.
-		if err := sender.SendFilterList(c, filterList); err != nil {
-			return nil, err
+		// As the sender we only send the filter list when the
+		// receiver wants it — matches exclude.c:send_filter_list.
+		// For gokr-rsync "wants" simplifies to --delete.
+		if opts.DeleteMode() {
+			if err := sender.SendFilterList(c, filterList); err != nil {
+				return nil, err
+			}
 		}
 
 		stats, err := st.Do(crd, cwr, FileSystemRoot, paths, filterList)
