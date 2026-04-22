@@ -44,6 +44,19 @@ func (rt *Transfer) deleteFiles(fileList []*File) error {
 			if findInFileList(fileList, path) {
 				return nil
 			}
+			// Don’t delete files or directories that are excluded by the filters,
+			// unless --delete-excluded was passed. If a filter explicitly
+			// excludes a path, we must leave it untouched by default; with
+			// --delete-excluded the caller opts into removing them anyway.
+			if path != "." && rt.FilterList != nil && !rt.Opts.DeleteExcluded {
+				include, matched := rt.FilterList.Match(path, info.IsDir())
+				if matched && !include {
+					if info.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
 			if rt.Opts.Verbose {
 				rt.Logger.Printf("  deleting %s", path)
 			}
@@ -54,7 +67,13 @@ func (rt *Transfer) deleteFiles(fileList []*File) error {
 				rt.Logger.Printf("  deleting %s failed: %v", path, err)
 				// keep going
 			}
-			return fs.SkipDir // skip the just-deleted directory
+			// fs.SkipDir on a directory skips its (now-removed) contents; on a
+			// regular file it would skip the rest of the parent's entries, so
+			// we only return it for directories.
+			if info.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		})
 		if err != nil {
 			if os.IsNotExist(err) {

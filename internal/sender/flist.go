@@ -12,6 +12,7 @@ import (
 
 	"github.com/gokrazy/rsync"
 	"github.com/gokrazy/rsync/internal/rsyncchecksum"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncopts"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
@@ -72,7 +73,7 @@ type scopedWalker struct {
 	ioError   func(err error)
 	conn      *rsyncwire.Conn
 	fec       *rsyncwire.Buffer
-	excl      *filterRuleList
+	excl      *rsyncfilter.List
 	uidMap    map[int32]string
 	gidMap    map[int32]string
 	fileList  *fileList
@@ -145,8 +146,14 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	}
 	// st.logger.Printf("flags for %q: %v", name, flags)
 
-	if s.excl.matches(name) {
-		return filepath.SkipDir
+	// Always transmit the transfer root ("."); filter rules only apply to descendants.
+	if path != "." {
+		if include, _ := s.excl.Match(name, d.IsDir()); !include {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 	}
 
 	s.fileList.Files = append(s.fileList.Files, file{
@@ -314,7 +321,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 }
 
 // rsync/flist.c:send_file_list
-func (st *Transfer) SendFileList(localDir string, paths []string, excl *filterRuleList) (*fileList, error) {
+func (st *Transfer) SendFileList(localDir string, paths []string, excl *rsyncfilter.List) (*fileList, error) {
 	var fileList fileList
 	fec := &rsyncwire.Buffer{}
 

@@ -10,6 +10,11 @@ import (
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
+// FilterList is a set of filter/exclude rules that determines whether paths are included or excluded.
+type FilterList interface {
+	Match(path string, isDir bool) (include, matched bool)
+}
+
 // TransferOpts is a subset of Opts which is required for implementing a receiver.
 type TransferOpts struct {
 	Verbose  bool
@@ -18,6 +23,7 @@ type TransferOpts struct {
 	Progress bool
 
 	DeleteMode        bool
+	DeleteExcluded    bool
 	PreserveGid       bool
 	PreserveUid       bool
 	PreserveLinks     bool
@@ -45,6 +51,7 @@ type Transfer struct {
 	// state
 	Conn            *rsyncwire.Conn
 	Seed            int32
+	FilterList      FilterList
 	IOErrors        int32
 	Users           map[int32]mapping
 	Groups          map[int32]mapping

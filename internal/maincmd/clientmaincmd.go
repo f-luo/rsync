@@ -15,6 +15,7 @@ import (
 	"github.com/gokrazy/rsync/internal/progress"
 	"github.com/gokrazy/rsync/internal/receiver"
 	"github.com/gokrazy/rsync/internal/restrict"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncopts"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/rsyncstats"
@@ -295,6 +296,8 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 	}
 	c.Reader = crd
 
+	filterList := opts.FilterList()
+
 	if opts.Sender() {
 		st := &sender.Transfer{
 			Logger:   osenv.Logger(),
@@ -325,7 +328,17 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			}
 		}
 
-		stats, err := st.Do(crd, cwr, FileSystemRoot, paths, nil)
+		// Only push the filter list when the receiver consumes it
+		// (--delete), matching exclude.c:send_filter_list. Sending
+		// unconditionally hangs upstream rsync clients that do not
+		// read it in non-delete pushes.
+		if opts.DeleteMode() {
+			if err := rsyncfilter.Send(c, filterList); err != nil {
+				return nil, err
+			}
+		}
+
+		stats, err := st.Do(crd, cwr, FileSystemRoot, paths, filterList)
 		if err != nil {
 			return nil, err
 		}
@@ -344,6 +357,7 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			Progress: opts.Progress(),
 
 			DeleteMode:        opts.DeleteMode(),
+			DeleteExcluded:    opts.DeleteExcluded(),
 			PreserveGid:       opts.PreserveGid(),
 			PreserveUid:       opts.PreserveUid(),
 			PreserveLinks:     opts.PreserveLinks(),
@@ -363,6 +377,9 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 		Conn:     c,
 		Seed:     seed,
 		Progress: progress.NewPrinter(osenv.Stdout, time.Now),
+	}
+	if filterList != nil {
+		rt.FilterList = filterList
 	}
 	if opts.Verbose() {
 		osenv.Logf("receiving to dest=%s", rt.Dest)
@@ -385,17 +402,12 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 		}
 	}
 
-	for _, rule := range opts.FilterRules() {
-		c.WriteInt32(int32(len(rule)))
-		c.WriteString(rule)
-	}
-	const exclusionListEnd = 0
-	if err := c.WriteInt32(exclusionListEnd); err != nil {
+	if err := rsyncfilter.Send(c, filterList); err != nil {
 		return nil, err
 	}
 
 	if opts.DebugGTE(rsyncopts.DEBUG_RECV, 1) {
-		osenv.Logf("exclusion list sent")
+		osenv.Logf("exclusion list sent (entries: %d)", filterList.Len())
 	}
 
 	// receive file list

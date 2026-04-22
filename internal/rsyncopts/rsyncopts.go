@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"unicode"
 
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/version"
 )
@@ -217,7 +218,7 @@ type Options struct {
 	info           [COUNT_INFO]uint16
 	debug          [COUNT_DEBUG]uint16
 	local_server   int
-	filterRules    []string
+	filterList     *rsyncfilter.List
 
 	// order matches long_options order
 	verbose                int
@@ -717,6 +718,7 @@ func (o *Options) PreserveHardLinks() bool    { return o.preserve_hard_links != 
 func (o *Options) Recurse() bool              { return o.recurse != 0 }
 func (o *Options) Verbose() bool              { return o.verbose != 0 }
 func (o *Options) DeleteMode() bool           { return o.delete_mode != 0 }
+func (o *Options) DeleteExcluded() bool       { return o.delete_excluded != 0 }
 func (o *Options) Sender() bool               { return o.am_sender != 0 }
 func (o *Options) SetSender()                 { o.am_sender = 1 }
 func (o *Options) LocalServer() bool          { return o.local_server != 0 }
@@ -729,7 +731,20 @@ func (o *Options) IgnoreTimes() bool          { return o.ignore_times != 0 }
 func (o *Options) OutputMOTD() bool           { return o.output_motd != 0 }
 func (o *Options) RsyncPort() int             { return o.rsync_port }
 func (o *Options) XferDirs() int              { return o.xfer_dirs }
-func (o *Options) FilterRules() []string      { return o.filterRules }
+
+// FilterList returns the parsed --exclude/--include/--filter/...-from
+// rules accumulated during argument parsing.
+func (o *Options) FilterList() *rsyncfilter.List { return o.filterList }
+
+// ensureFilterList lazily allocates o.filterList so the option handlers
+// can append rules without repeating the nil check.
+func (o *Options) ensureFilterList() *rsyncfilter.List {
+	if o.filterList == nil {
+		o.filterList = rsyncfilter.New()
+	}
+	return o.filterList
+}
+
 func (o *Options) Progress() bool {
 	return o.info[INFO_PROGRESS] > 0
 }
@@ -905,7 +920,7 @@ func (o *Options) gokrazyTable() []poptOption {
 		//{"delete-during", "", POPT_ARG_VAL, &o.delete_during, 1},
 		//{"delete-delay", "", POPT_ARG_VAL, &o.delete_during, 2},
 		//{"delete-after", "", POPT_ARG_NONE, &o.delete_after, 0},
-		//{"delete-excluded", "", POPT_ARG_NONE, &o.delete_excluded, 0},
+		{"delete-excluded", "", POPT_ARG_NONE, &o.delete_excluded, 0},
 		//{"delete-missing-args", "", POPT_BIT_SET, &o.missing_args, 2},
 		//{"ignore-missing-args", "", POPT_BIT_SET, &o.missing_args, 1},
 		//{"remove-sent-files", "", POPT_ARG_VAL, &o.remove_source_files, 2}, /* deprecated */
@@ -919,8 +934,8 @@ func (o *Options) gokrazyTable() []poptOption {
 		{"filter", "f", POPT_ARG_STRING, nil, OPT_FILTER},
 		{"exclude", "", POPT_ARG_STRING, nil, OPT_EXCLUDE},
 		{"include", "", POPT_ARG_STRING, nil, OPT_INCLUDE},
-		//{"exclude-from", "", POPT_ARG_STRING, nil, OPT_EXCLUDE_FROM},
-		//{"include-from", "", POPT_ARG_STRING, nil, OPT_INCLUDE_FROM},
+		{"exclude-from", "", POPT_ARG_STRING, nil, OPT_EXCLUDE_FROM},
+		{"include-from", "", POPT_ARG_STRING, nil, OPT_INCLUDE_FROM},
 		//{"cvs-exclude", "C", POPT_ARG_NONE, &o.cvs_exclude, 0},
 		//{"whole-file", "W", POPT_ARG_VAL, &o.whole_file, 1},
 		//{"no-whole-file", "", POPT_ARG_VAL, &o.whole_file, 0},
@@ -1383,15 +1398,29 @@ func (pc *Context) ParseArguments(osenv *rsyncos.Env, args []string) error {
 			return nil
 
 		case OPT_FILTER:
-			opts.filterRules = append(opts.filterRules, pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Parse(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--filter: %w", err)
+			}
 		case OPT_EXCLUDE:
-			opts.filterRules = append(opts.filterRules, "- "+pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Exclude(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--exclude: %w", err)
+			}
 		case OPT_INCLUDE:
-			opts.filterRules = append(opts.filterRules, "+ "+pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Include(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--include: %w", err)
+			}
 
-		case OPT_INCLUDE_FROM,
-			OPT_EXCLUDE_FROM:
-			return errNotYetImplemented
+		case OPT_INCLUDE_FROM, OPT_EXCLUDE_FROM:
+			path := pc.poptGetOptArg()
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			err = opts.ensureFilterList().AddFromReader(f, opt == OPT_INCLUDE_FROM)
+			f.Close()
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 
 		case 'a':
 			if opts.recurse == 0 {

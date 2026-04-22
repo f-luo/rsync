@@ -209,6 +209,77 @@ func TestParseArgumentsError(t *testing.T) {
 	}
 }
 
+func TestFilterFromFile(t *testing.T) {
+	dir := t.TempDir()
+	inc := filepath.Join(dir, "inc")
+	exc := filepath.Join(dir, "exc")
+	if err := os.WriteFile(inc, []byte("# keep list\nkeep.go\n+ also.go\n- drop.go\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// CRLF guards pattern files authored on Windows.
+	if err := os.WriteFile(exc, []byte("; skip list\n*.log\r\n+ keep.log\n!\n- after-reset\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	if err := pc.ParseArguments(osenv, []string{"--include-from=" + inc, "--exclude-from=" + exc}); err != nil {
+		t.Fatalf("ParseArguments: %v", err)
+	}
+
+	// ParseArguments processes --include-from first, then
+	// --exclude-from; the "!" in exc clears every rule seen so far,
+	// leaving just the trailing "- after-reset".
+	list := pc.Options.FilterList()
+	if list == nil {
+		t.Fatal("FilterList() = nil, want non-nil")
+	}
+	if got := list.Len(); got != 1 {
+		t.Errorf("FilterList().Len() = %d, want 1", got)
+	}
+
+	cases := []struct {
+		path                        string
+		isDir, wantInclude, matched bool
+	}{
+		{"after-reset", false, false, true}, // explicit exclude survived the "!"
+		{"keep.go", false, true, false},     // the "!" wiped it; defaults include
+		{"noisy.log", false, true, false},   // likewise
+	}
+	for _, c := range cases {
+		inc, matched := list.Match(c.path, c.isDir)
+		if inc != c.wantInclude || matched != c.matched {
+			t.Errorf("Match(%q) = (inc=%v, matched=%v), want (%v, %v)",
+				c.path, inc, matched, c.wantInclude, c.matched)
+		}
+	}
+}
+
+func TestParseArgumentsAcceptsDeleteExcluded(t *testing.T) {
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	if err := pc.ParseArguments(osenv, []string{"--delete", "--delete-excluded"}); err != nil {
+		t.Fatalf("ParseArguments rejected --delete-excluded: %v", err)
+	}
+	if !pc.Options.DeleteMode() {
+		t.Errorf("DeleteMode() = false, want true")
+	}
+	if !pc.Options.DeleteExcluded() {
+		t.Errorf("DeleteExcluded() = false, want true")
+	}
+}
+
+func TestParseArgumentsDeleteExcludedDefaultsOff(t *testing.T) {
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	if err := pc.ParseArguments(osenv, []string{"--delete"}); err != nil {
+		t.Fatalf("ParseArguments: %v", err)
+	}
+	if pc.Options.DeleteExcluded() {
+		t.Errorf("DeleteExcluded() = true without --delete-excluded, want false")
+	}
+}
+
 func TestParseArgumentsRemaining(t *testing.T) {
 	for _, tt := range []struct {
 		args []string

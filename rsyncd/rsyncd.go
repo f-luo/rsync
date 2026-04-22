@@ -21,6 +21,7 @@ import (
 	"github.com/gokrazy/rsync/internal/log"
 	"github.com/gokrazy/rsync/internal/progress"
 	"github.com/gokrazy/rsync/internal/receiver"
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncopts"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/rsyncwire"
@@ -434,6 +435,7 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 			Progress: opts.Progress(),
 
 			DeleteMode:       opts.DeleteMode(),
+			DeleteExcluded:   opts.DeleteExcluded(),
 			PreserveGid:      opts.PreserveGid(),
 			PreserveUid:      opts.PreserveUid(),
 			PreserveLinks:    opts.PreserveLinks(),
@@ -506,11 +508,14 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 
 	if opts.DeleteMode() {
 		// receive the exclusion list (openrsync’s is always empty)
-		exclusionList, err := sender.RecvFilterList(c)
+		exclusionList, err := rsyncfilter.Recv(c)
 		if err != nil {
 			return err
 		}
-		s.logger.Printf("exclusion list read (entries: %d)", len(exclusionList.Filters))
+		rt.FilterList = exclusionList
+		if opts.Verbose() {
+			s.logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
+		}
 	}
 
 	// receive file list
@@ -559,11 +564,11 @@ func (s *Server) handleConnSender(module *Module, crd *rsyncwire.CountingReader,
 		st.Source = sender.NewFSSource(module.FS)
 	}
 
-	exclusionList, err := sender.RecvFilterList(st.Conn)
+	exclusionList, err := rsyncfilter.Recv(st.Conn)
 	if err != nil {
 		return err
 	}
-	st.Logger.Printf("exclusion list read (entries: %d)", len(exclusionList.Filters))
+	st.Logger.Printf("exclusion list read (entries: %d)", exclusionList.Len())
 
 	stats, err := st.Do(crd, cwr, module.Path, paths, exclusionList)
 	if err != nil {
