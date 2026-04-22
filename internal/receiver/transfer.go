@@ -14,6 +14,10 @@ import (
 // consults. An excluded path must be protected from --delete; see
 // exclude.c:check_filter. *sender.FilterRuleList satisfies it.
 type FilterList interface {
+	// Match reports the outcome of the first rule that matches
+	// (path, isDir). include is true for an include ('+') rule and
+	// false for an exclude ('-') rule. matched is false if no rule
+	// matched, in which case include is true (default-include).
 	Match(path string, isDir bool) (include, matched bool)
 }
 
