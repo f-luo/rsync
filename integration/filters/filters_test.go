@@ -211,20 +211,56 @@ func TestDownloadIncludeBeforeExclude(t *testing.T) {
 	)
 
 	got := list(t, dst)
-	// *.go files should transfer (include wins first); *.tmp should drop.
-	for _, p := range got {
-		if strings.HasSuffix(p, ".tmp") {
-			t.Errorf("--exclude '*.tmp' failed to drop %s; got: %v", p, got)
-		}
+	// First-match wins: *.go is kept by the include; *.tmp drops.
+	// All other files pass through (default-include fall-through).
+	want := []string{
+		"build/nested/out.bin",
+		"build/out.bin",
+		"drop.log",
+		"keep.txt",
+		"nested/deeper/drop.log",
+		"nested/deeper/keep.md",
+		"nested/drop.log",
+		"nested/keep.go",
+		"src/a.go",
+		"sub/top-only",
+		"top-only",
 	}
-	foundGo := false
-	for _, p := range got {
-		if p == "src/a.go" || p == "nested/keep.go" {
-			foundGo = true
-		}
+	if diff := equalSet(got, want); diff != "" {
+		t.Fatalf("include-before-exclude mismatch:\n%s", diff)
 	}
-	if !foundGo {
-		t.Errorf("--include '*.go' didn't preserve any .go files; got: %v", got)
+}
+
+// TestDownloadBroadExcludeStillTransfersRoot pins the transfer-root
+// carve-out in sender/flist.go: even with `--exclude '*'`, the root
+// directory itself must still be transmitted so the destination
+// directory gets created. Without the carve-out, the walker would
+// skip the root itself and the transfer would produce nothing.
+func TestDownloadBroadExcludeStillTransfersRoot(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	src, dst := filepath.Join(tmp, "src"), filepath.Join(tmp, "dst")
+	fixture(t, src)
+
+	srv := rsynctest.New(t, rsynctest.InteropModule(src))
+	rsynctest.Run(t,
+		"gokr-rsync", "-a",
+		"--exclude", "*",
+		"rsync://localhost:"+srv.Port+"/interop/",
+		dst,
+	)
+
+	// The root must exist (dst is the just-created transfer root).
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("--exclude '*' suppressed the transfer root: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("transfer root is not a directory: %v", info.Mode())
+	}
+	// No regular files should land: '*' prunes every descendant.
+	if got := list(t, dst); len(got) != 0 {
+		t.Errorf("--exclude '*' left files: %v", got)
 	}
 }
 
