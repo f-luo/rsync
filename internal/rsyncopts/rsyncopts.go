@@ -731,10 +731,9 @@ func (o *Options) IgnoreTimes() bool          { return o.ignore_times != 0 }
 func (o *Options) OutputMOTD() bool           { return o.output_motd != 0 }
 func (o *Options) RsyncPort() int             { return o.rsync_port }
 func (o *Options) XferDirs() int              { return o.xfer_dirs }
+
 // FilterList returns the parsed --exclude/--include/--filter/...-from
-// rules accumulated during argument parsing. The returned pointer may
-// be nil if no filter flag was passed; callers (and rsyncfilter.List
-// methods) handle nil as "no rules".
+// rules accumulated during argument parsing.
 func (o *Options) FilterList() *rsyncfilter.List { return o.filterList }
 
 // ensureFilterList lazily allocates o.filterList so the option handlers

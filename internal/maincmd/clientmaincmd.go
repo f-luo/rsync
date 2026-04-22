@@ -378,9 +378,6 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 		Seed:     seed,
 		Progress: progress.NewPrinter(osenv.Stdout, time.Now),
 	}
-	// Assign via setter-style: if filterList is a nil *rsyncfilter.List,
-	// keep rt.FilterList as a nil interface so `rt.FilterList != nil`
-	// checks in the receiver are honest.
 	if filterList != nil {
 		rt.FilterList = filterList
 	}

@@ -11,6 +11,19 @@ import (
 	"strings"
 )
 
+const (
+	ruleInclude = 1 << iota
+	ruleClearList
+	ruleDirectory
+	ruleAnchored
+	ruleBasename // pattern has no '/' and is unanchored: match basename only
+)
+
+type rule struct {
+	flag    int
+	pattern string
+}
+
 // List is an ordered collection of filter rules. Order is significant:
 // Match returns the decision of the first rule that matches.
 type List struct {
@@ -83,18 +96,6 @@ func (l *List) add(r *rule) {
 	l.rules = append(l.rules, r)
 }
 
-const (
-	ruleInclude = 1 << iota
-	ruleClearList
-	ruleDirectory
-	ruleAnchored
-)
-
-type rule struct {
-	flag    int
-	pattern string
-}
-
 // matches reports whether r applies to path. Directory-only rules skip
 // files; patterns without a '/' match on the basename so "*.log" hits
 // at any depth.
@@ -105,7 +106,7 @@ func (r *rule) matches(path string, isDir bool) bool {
 		return false
 	}
 	target := path
-	if r.flag&ruleAnchored == 0 && !strings.ContainsRune(r.pattern, '/') {
+	if r.flag&ruleBasename != 0 {
 		target = filepath.Base(path)
 	}
 	return wildmatch(r.pattern, target)
@@ -156,6 +157,9 @@ func parseRule(line string) (*rule, error) {
 	if strings.HasSuffix(line, "/") {
 		r.flag |= ruleDirectory
 		line = line[:len(line)-1]
+	}
+	if r.flag&ruleAnchored == 0 && !strings.Contains(line, "/") {
+		r.flag |= ruleBasename
 	}
 	r.pattern = line
 	return r, nil

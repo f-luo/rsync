@@ -16,27 +16,20 @@ import (
 func (l *List) AddFromReader(r io.Reader, defaultInclude bool) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		t := strings.TrimLeft(line, " \t")
+		t := strings.TrimLeft(strings.TrimRight(sc.Text(), "\r"), " \t")
 		if t == "" || t[0] == '#' || t[0] == ';' {
 			continue
 		}
-		if !hasRulePrefix(t) {
+		if t != "!" && !strings.HasPrefix(t, "- ") && !strings.HasPrefix(t, "+ ") {
+			sign := "- "
 			if defaultInclude {
-				t = "+ " + t
-			} else {
-				t = "- " + t
+				sign = "+ "
 			}
+			t = sign + t
 		}
 		if err := l.Parse(t); err != nil {
 			return err
 		}
 	}
 	return sc.Err()
-}
-
-func hasRulePrefix(line string) bool {
-	return line == "!" ||
-		strings.HasPrefix(line, "- ") ||
-		strings.HasPrefix(line, "+ ")
 }

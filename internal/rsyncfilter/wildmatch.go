@@ -1,17 +1,13 @@
 package rsyncfilter
 
-import "bytes"
+import "strings"
 
 // wildmatch reports whether pattern matches text under rsync shell-glob
 // semantics: '?' and '*' stop at '/', '**' crosses '/', '[...]' classes
 // (with '!'/'^' negation and 'a-z' ranges), and '\c' escapes a literal.
 //
 // wildmatch.c:dowild
-func wildmatch(pattern, text string) bool {
-	return doWild([]byte(pattern), []byte(text))
-}
-
-func doWild(p, t []byte) bool {
+func wildmatch(p, t string) bool {
 	for {
 		if len(p) == 0 {
 			return len(t) == 0
@@ -37,34 +33,26 @@ func doWild(p, t []byte) bool {
 			}
 			p, t = p[size:], t[1:]
 		case '*':
-			starCount := 0
+			stars := 0
 			for len(p) > 0 && p[0] == '*' {
-				starCount++
+				stars++
 				p = p[1:]
 			}
-			crossSlash := starCount >= 2
+			crossSlash := stars >= 2
 			if len(p) == 0 {
-				if crossSlash {
-					return true
-				}
-				return bytes.IndexByte(t, '/') < 0
+				return crossSlash || strings.IndexByte(t, '/') < 0
 			}
 			// '**/' may match zero path segments: try the tail past
 			// the '/' at the current text position. Mirrors
 			// wildmatch.c's zero-segment collapse.
-			if crossSlash && p[0] == '/' {
-				if doWild(p[1:], t) {
-					return true
-				}
+			if crossSlash && p[0] == '/' && wildmatch(p[1:], t) {
+				return true
 			}
 			for i := 0; ; i++ {
-				if doWild(p, t[i:]) {
+				if wildmatch(p, t[i:]) {
 					return true
 				}
-				if i >= len(t) {
-					return false
-				}
-				if !crossSlash && t[i] == '/' {
+				if i >= len(t) || (!crossSlash && t[i] == '/') {
 					return false
 				}
 			}
@@ -80,24 +68,23 @@ func doWild(p, t []byte) bool {
 // matchClass evaluates a '[...]' character class against c, returning
 // whether c matched and the number of pattern bytes consumed. An
 // unclosed class returns (false, 0).
-func matchClass(p []byte, c byte) (matched bool, size int) {
+func matchClass(p string, c byte) (matched bool, size int) {
 	if len(p) < 2 || p[0] != '[' {
 		return false, 0
 	}
 	i := 1
 	neg := false
-	if i < len(p) && (p[i] == '!' || p[i] == '^') {
+	if p[i] == '!' || p[i] == '^' {
 		neg = true
 		i++
 	}
 	first := true
 	for i < len(p) {
 		if !first && p[i] == ']' {
-			i++
 			if neg {
 				matched = !matched
 			}
-			return matched, i
+			return matched, i + 1
 		}
 		first = false
 		switch {
