@@ -295,9 +295,6 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 	}
 	c.Reader = crd
 
-	// Build the filter list once from argv. Both roles use it:
-	// client-sender applies it locally when walking, and either
-	// role sends it over the wire so the peer can mirror it.
 	filterList, err := sender.ParseFilterRules(opts.FilterRules())
 	if err != nil {
 		return nil, fmt.Errorf("parsing filter rules: %v", err)
@@ -333,9 +330,10 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			}
 		}
 
-		// As the sender we only send the filter list when the
-		// receiver wants it — matches exclude.c:send_filter_list.
-		// For gokr-rsync "wants" simplifies to --delete.
+		// Only push the filter list when the receiver consumes it
+		// (--delete), matching exclude.c:send_filter_list. Sending
+		// unconditionally hangs upstream rsync clients that do not
+		// read it in non-delete pushes.
 		if opts.DeleteMode() {
 			if err := sender.SendFilterList(c, filterList); err != nil {
 				return nil, err
@@ -403,8 +401,6 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 		}
 	}
 
-	// As the receiver we send the accumulated --exclude /
-	// --include / --*-from rules up to the sender.
 	if err := sender.SendFilterList(c, filterList); err != nil {
 		return nil, err
 	}

@@ -10,14 +10,12 @@ import (
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
-// FilterList is the subset of the filter rule list the receiver
-// consults. An excluded path must be protected from --delete; see
-// exclude.c:check_filter. *sender.FilterRuleList satisfies it.
+// FilterList decides whether a path is protected from --delete. An
+// implementation's Match returns the outcome of the first rule that
+// matched path — include=true for '+', false for '-' — or (true,
+// false) if no rule matched (default-include). *sender.FilterRuleList
+// satisfies it. See exclude.c:check_filter.
 type FilterList interface {
-	// Match reports the outcome of the first rule that matches
-	// (path, isDir). include is true for an include ('+') rule and
-	// false for an exclude ('-') rule. matched is false if no rule
-	// matched, in which case include is true (default-include).
 	Match(path string, isDir bool) (include, matched bool)
 }
 

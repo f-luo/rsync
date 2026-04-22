@@ -15,8 +15,6 @@ type FilterRuleList struct {
 
 // exclude.c:add_rule
 func (l *FilterRuleList) addRule(fr *filterRule) {
-	// A "!" rule clears the list and is not itself retained —
-	// mirrors exclude.c:parse_rule_tok when filtruleClearList is set.
 	if fr.flag&filtruleClearList != 0 {
 		l.Filters = nil
 		return
@@ -24,10 +22,7 @@ func (l *FilterRuleList) addRule(fr *filterRule) {
 	l.Filters = append(l.Filters, fr)
 }
 
-// Match walks the list in order and returns the outcome of the first
-// rule that matches (path, isDir). include is true for a '+' rule,
-// false for a '-' rule. matched is false if no rule matched, in which
-// case include defaults to true (rsync's default-include fall-through).
+// Match implements receiver.FilterList.
 //
 // exclude.c:check_filter
 func (l *FilterRuleList) Match(path string, isDir bool) (include, matched bool) {
@@ -67,10 +62,6 @@ func RecvFilterList(c *rsyncwire.Conn) (*FilterRuleList, error) {
 	return &l, nil
 }
 
-// SendFilterList writes l to c in rsync's wire format, terminated by
-// a zero-length entry. Each rule is serialised in its canonical form
-// so that a peer's recv_filter_list re-parses the same flags.
-//
 // exclude.c:send_filter_list
 func SendFilterList(c *rsyncwire.Conn, l *FilterRuleList) error {
 	if l != nil {
@@ -87,9 +78,8 @@ func SendFilterList(c *rsyncwire.Conn, l *FilterRuleList) error {
 	return c.WriteInt32(0)
 }
 
-// ParseFilterRules parses rules in XFLG_OLD_PREFIXES form — the same
-// strings rsyncopts.Options.FilterRules returns — into a
-// FilterRuleList suitable for Match and SendFilterList.
+// ParseFilterRules parses rules in XFLG_OLD_PREFIXES form — the strings
+// rsyncopts.Options.FilterRules returns — into a FilterRuleList.
 func ParseFilterRules(rules []string) (*FilterRuleList, error) {
 	l := &FilterRuleList{}
 	for _, line := range rules {
@@ -114,11 +104,6 @@ type filterRule struct {
 	pattern string
 }
 
-// matches reports whether fr matches (path, isDir). Pattern matching
-// uses rsync's wildmatch semantics (see wildmatch below); anchoring,
-// directory-only scoping, and basename-vs-fullpath target selection
-// follow exclude.c:rule_matches.
-//
 // exclude.c:rule_matches
 func (fr *filterRule) matches(path string, isDir bool) bool {
 	if fr.flag&filtruleDirectory != 0 && !isDir {
@@ -131,10 +116,7 @@ func (fr *filterRule) matches(path string, isDir bool) bool {
 	return wildmatch(fr.pattern, target)
 }
 
-// canonical returns fr's on-the-wire text form — the inverse of
-// parseFilter. The result always carries an explicit "- "/"+ " sign
-// (or is exactly "!" for the clear-list rule), so a peer recovers
-// the same flags by re-parsing.
+// canonical returns fr's on-the-wire text — the inverse of parseFilter.
 func (fr *filterRule) canonical() string {
 	if fr.flag&filtruleClearList != 0 {
 		return "!"
@@ -183,15 +165,9 @@ func parseFilter(line string) (*filterRule, error) {
 	return rule, nil
 }
 
-// wildmatch reports whether pattern matches text using rsync's
-// shell-glob semantics (wildmatch.c:dowild):
-//
-//   - '?' matches any one character except '/'.
-//   - '*' matches any run of characters except '/'.
-//   - '**' matches any run of characters including '/'.
-//   - '[...]' matches one character from a class; '!' or '^' after
-//     '[' negates; 'a-z' is a range; ']' as first char is literal.
-//   - '\c' matches the literal character c.
+// wildmatch reports whether pattern matches text under rsync shell-glob
+// semantics: '?' and '*' stop at '/', '**' crosses '/', '[...]' classes
+// (with '!'/'^' negation and 'a-z' ranges), and '\c' escapes.
 //
 // wildmatch.c:dowild
 func wildmatch(pattern, text string) bool {
@@ -265,10 +241,9 @@ func doWild(p, t []byte) bool {
 	}
 }
 
-// matchClass evaluates a '[...]' character class against c. It
-// returns whether c matched and the number of pattern bytes consumed
-// (including the leading '[' and trailing ']'). An unclosed class
-// never matches.
+// matchClass evaluates a '[...]' character class against c, returning
+// whether c matched and the number of pattern bytes consumed. An
+// unclosed class returns (false, 0).
 func matchClass(p []byte, c byte) (matched bool, size int) {
 	if len(p) < 2 || p[0] != '[' {
 		return false, 0

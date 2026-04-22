@@ -732,13 +732,10 @@ func (o *Options) RsyncPort() int             { return o.rsync_port }
 func (o *Options) XferDirs() int              { return o.xfer_dirs }
 func (o *Options) FilterRules() []string      { return o.filterRules }
 
-// readFilterFile reads path and returns one canonical filter rule
-// per line. Blank lines and lines whose first non-whitespace
-// character is '#' or ';' are skipped. Lines with no "- "/"+ "/"!"
-// prefix take the sign given by defaultInclude (true → include,
-// false → exclude) — mirroring rsync's --include-from vs
-// --exclude-from. The emitted strings are XFLG_OLD_PREFIXES form,
-// i.e. what sender.ParseFilterRules expects.
+// readFilterFile reads path and returns one XFLG_OLD_PREFIXES-form
+// rule per line. Lines without an explicit "- "/"+ "/"!" prefix take
+// the sign given by defaultInclude, mirroring --include-from vs
+// --exclude-from.
 //
 // options.c:parse_filter_file
 func readFilterFile(path string, defaultInclude bool) ([]string, error) {
@@ -772,6 +769,7 @@ func readFilterFile(path string, defaultInclude bool) ([]string, error) {
 	}
 	return lines, nil
 }
+
 func (o *Options) Progress() bool {
 	return o.info[INFO_PROGRESS] > 0
 }
