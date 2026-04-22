@@ -1,7 +1,6 @@
 package sender
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"path/filepath"
@@ -23,17 +22,6 @@ func (l *FilterRuleList) addRule(fr *filterRule) {
 		return
 	}
 	l.Filters = append(l.Filters, fr)
-}
-
-// matches reports whether any rule in the list excludes name. Retained
-// for callers that do not have isDir in hand; prefer Match where
-// possible because directory-only rules can only be evaluated
-// correctly with isDir.
-//
-// exclude.c:check_filter
-func (l *FilterRuleList) matches(name string) bool {
-	include, matched := l.Match(name, false)
-	return matched && !include
 }
 
 // Match walks the list in order and returns the outcome of the first
@@ -114,47 +102,10 @@ func ParseFilterRules(rules []string) (*FilterRuleList, error) {
 	return l, nil
 }
 
-// AddFromReader reads filter rules from r, one per line, and appends
-// them to l. Blank lines and lines whose first non-whitespace
-// character is '#' or ';' are skipped. Lines with no "- "/"+ "/"!"
-// prefix take the sign given by defaultInclude (true → include,
-// false → exclude) — this mirrors rsync's --include-from (defaults
-// include) vs --exclude-from (defaults exclude).
-//
-// exclude.c:parse_filter_file
-func (l *FilterRuleList) AddFromReader(r io.Reader, defaultInclude bool) error {
-	sc := bufio.NewScanner(r)
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		t := strings.TrimLeft(line, " \t")
-		if t == "" || t[0] == '#' || t[0] == ';' {
-			continue
-		}
-		var ruleLine string
-		switch {
-		case t == "!",
-			strings.HasPrefix(t, "- "),
-			strings.HasPrefix(t, "+ "):
-			ruleLine = t
-		case defaultInclude:
-			ruleLine = "+ " + t
-		default:
-			ruleLine = "- " + t
-		}
-		fr, err := parseFilter(ruleLine)
-		if err != nil {
-			return err
-		}
-		l.addRule(fr)
-	}
-	return sc.Err()
-}
-
 const (
 	filtruleInclude = 1 << iota
 	filtruleClearList
 	filtruleDirectory
-	filtruleWild
 	filtruleAnchored
 )
 
@@ -228,10 +179,6 @@ func parseFilter(line string) (*filterRule, error) {
 		rule.flag |= filtruleDirectory
 		line = line[:len(line)-1]
 	}
-	if strings.ContainsAny(line, "*?[") {
-		rule.flag |= filtruleWild
-	}
-
 	rule.pattern = line
 	return rule, nil
 }

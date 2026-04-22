@@ -2,15 +2,11 @@ package sender
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
-// singleRule parses line and returns a list containing just that
-// rule, used to assert parseFilter produces rules whose Match
-// behavior is correct — without reaching into rule internals.
 func singleRule(t *testing.T, line string) *FilterRuleList {
 	t.Helper()
 	fr, err := parseFilter(line)
@@ -38,35 +34,15 @@ func TestParseExcludeInclude(t *testing.T) {
 	assertMatch(t, singleRule(t, "foo"), "foo", false, false, true)
 }
 
-func TestParseReset(t *testing.T) {
-	reset, _ := parseFilter("!")
-	if reset.flag&filtruleClearList == 0 {
-		t.Fatalf("parseFilter(!) did not set clear-list flag")
+func TestResetClearsList(t *testing.T) {
+	l, err := ParseFilterRules([]string{"- a", "- b", "!", "- c"})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestAddRuleResetDropsList(t *testing.T) {
-	l := &FilterRuleList{}
-	a, _ := parseFilter("- a")
-	b, _ := parseFilter("- b")
-	reset, _ := parseFilter("!")
-	c, _ := parseFilter("- c")
-	l.addRule(a)
-	l.addRule(b)
-	l.addRule(reset)
-	l.addRule(c)
-	// After "!", only the rules added after it should remain.
-	if len(l.Filters) != 1 {
-		t.Fatalf("after reset, len(Filters) = %d, want 1", len(l.Filters))
-	}
-	// "a" must no longer match — previously-added rules are gone.
-	if inc, matched := l.Match("a", false); matched || !inc {
-		t.Errorf("Match(a) = (%v, %v), want (true, false) after reset", inc, matched)
-	}
-	// "c" is still excluded.
-	if inc, matched := l.Match("c", false); !matched || inc {
-		t.Errorf("Match(c) = (%v, %v), want (false, true)", inc, matched)
-	}
+	// Rules added before "!" must no longer match; rules after still do.
+	assertMatch(t, l, "a", false, true, false)
+	assertMatch(t, l, "b", false, true, false)
+	assertMatch(t, l, "c", false, false, true)
 }
 
 func TestMatchAnchoredVsFloating(t *testing.T) {
@@ -243,62 +219,9 @@ func TestSendNilActsLikeEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Filters) != 0 {
-		t.Errorf("len(Filters)=%d, want 0", len(got.Filters))
-	}
-	// Empty list matches nothing; default include.
-	inc, matched := got.Match("anything", false)
-	if !inc || matched {
-		t.Errorf("empty list: Match=(%v,%v), want (true,false)", inc, matched)
-	}
-}
-
-func TestAddFromReaderSkipsCommentsAndBlanks(t *testing.T) {
-	input := `# a comment
-; another comment
-
-*.log
-`
-	l := &FilterRuleList{}
-	if err := l.AddFromReader(strings.NewReader(input), false); err != nil {
-		t.Fatal(err)
-	}
-	assertMatch(t, l, "noisy.log", false, false, true)
-	assertMatch(t, l, "# a comment", false, true, false)
-	assertMatch(t, l, "", false, true, false)
-}
-
-func TestAddFromReaderDefaultSign(t *testing.T) {
-	ex := &FilterRuleList{}
-	if err := ex.AddFromReader(strings.NewReader("a\nb\n"), false); err != nil {
-		t.Fatal(err)
-	}
-	assertMatch(t, ex, "a", false, false, true)
-
-	inc := &FilterRuleList{}
-	if err := inc.AddFromReader(strings.NewReader("a\n"), true); err != nil {
-		t.Fatal(err)
-	}
-	assertMatch(t, inc, "a", false, true, true)
-}
-
-func TestAddFromReaderHonorsExplicitPrefixes(t *testing.T) {
-	input := "+ keep.go\n- drop.go\n"
-	l := &FilterRuleList{}
-	if err := l.AddFromReader(strings.NewReader(input), false); err != nil {
-		t.Fatal(err)
-	}
-	assertMatch(t, l, "keep.go", false, true, true)
-	assertMatch(t, l, "drop.go", false, false, true)
-}
-
-func TestAddFromReaderStripsCRLF(t *testing.T) {
-	l := &FilterRuleList{}
-	if err := l.AddFromReader(strings.NewReader("*.log\r\n"), false); err != nil {
-		t.Fatal(err)
-	}
-	// `*.log\r` would not match `noisy.log`; the '\r' must be stripped.
-	assertMatch(t, l, "noisy.log", false, false, true)
+	// Whatever was sent, the received list must behave like an empty
+	// one — any path default-includes with matched=false.
+	assertMatch(t, got, "anything", false, true, false)
 }
 
 func TestParseFilterRules(t *testing.T) {

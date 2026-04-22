@@ -216,7 +216,8 @@ func TestFilterFromFile(t *testing.T) {
 	if err := os.WriteFile(inc, []byte("# keep list\nkeep.go\n+ also.go\n- drop.go\n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(exc, []byte("; skip list\n*.log\n+ keep.log\n"), 0o644); err != nil {
+	// CRLF guards pattern files authored on Windows.
+	if err := os.WriteFile(exc, []byte("; skip list\n*.log\r\n+ keep.log\n!\n- after-reset\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,6 +232,8 @@ func TestFilterFromFile(t *testing.T) {
 		"- drop.go",
 		"- *.log",
 		"+ keep.log",
+		"!",
+		"- after-reset",
 	}
 	if diff := cmp.Diff(want, pc.Options.FilterRules()); diff != "" {
 		t.Errorf("FilterRules: diff (-want +got):\n%s", diff)
