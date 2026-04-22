@@ -48,8 +48,8 @@ func (rt *Transfer) deleteFiles(fileList []*File) error {
 			// rule matches as exclude, the sender isn't sending
 			// it, but the receiver must not delete it either.
 			// exclude.c:check_filter.
-			if path != "." && rt.Opts.FilterList != nil {
-				include, matched := rt.Opts.FilterList.Match(path, info.IsDir())
+			if path != "." && rt.FilterList != nil {
+				include, matched := rt.FilterList.Match(path, info.IsDir())
 				if matched && !include {
 					if info.IsDir() {
 						return fs.SkipDir

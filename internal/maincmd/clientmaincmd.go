@@ -369,16 +369,16 @@ func ClientRun(osenv *rsyncos.Env, opts *rsyncopts.Options, conn io.ReadWriter, 
 			PreserveHardlinks: opts.PreserveHardLinks(),
 			IgnoreTimes:       opts.IgnoreTimes(),
 			AlwaysChecksum:    opts.AlwaysChecksum(),
-			FilterList:        filterList,
 
 			InfoGTE:  opts.InfoGTE,
 			DebugGTE: opts.DebugGTE,
 		},
-		Dest:     paths[0],
-		Env:      osenv,
-		Conn:     c,
-		Seed:     seed,
-		Progress: progress.NewPrinter(osenv.Stdout, time.Now),
+		Dest:       paths[0],
+		Env:        osenv,
+		Conn:       c,
+		Seed:       seed,
+		FilterList: filterList,
+		Progress:   progress.NewPrinter(osenv.Stdout, time.Now),
 	}
 	if opts.Verbose() {
 		osenv.Logf("receiving to dest=%s", rt.Dest)

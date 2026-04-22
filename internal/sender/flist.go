@@ -145,10 +145,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 	}
 	// st.logger.Printf("flags for %q: %v", name, flags)
 
-	// The transfer root (".") is always transmitted: rules describe
-	// which descendants to include, not whether the root itself is
-	// eligible — and an overly broad rule like "*" would otherwise
-	// prune the whole tree before we descended into it.
+	// Always transmit the transfer root ("."); filter rules only apply to descendants.
 	if path != "." {
 		if include, _ := s.excl.Match(name, d.IsDir()); !include {
 			if d.IsDir() {

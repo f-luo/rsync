@@ -504,16 +504,13 @@ func (s *Server) handleConnReceiver(module *Module, crd *rsyncwire.CountingReade
 		return fmt.Errorf("support for hard links not yet implemented")
 	}
 
-	// Only the receiver's delete path consumes the filter list,
-	// and the peer only sends it when we ask — matches
-	// exclude.c:receive_filter_list. For gokr-rsync "wants list"
-	// simplifies to --delete.
 	if opts.DeleteMode() {
+		// receive the exclusion list (openrsync’s is always empty)
 		exclusionList, err := sender.RecvFilterList(c)
 		if err != nil {
 			return err
 		}
-		rt.Opts.FilterList = exclusionList
+		rt.FilterList = exclusionList
 		if opts.Verbose() {
 			s.logger.Printf("exclusion list read (entries: %d)", len(exclusionList.Filters))
 		}

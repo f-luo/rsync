@@ -10,11 +10,7 @@ import (
 	"github.com/gokrazy/rsync/internal/rsyncwire"
 )
 
-// FilterList decides whether a path is protected from --delete. An
-// implementation's Match returns the outcome of the first rule that
-// matched path — include=true for '+', false for '-' — or (true,
-// false) if no rule matched (default-include). *sender.FilterRuleList
-// satisfies it. See exclude.c:check_filter.
+// FilterList is a set of filter/exclude rules that determines whether paths are included or excluded.
 type FilterList interface {
 	Match(path string, isDir bool) (include, matched bool)
 }
@@ -38,11 +34,6 @@ type TransferOpts struct {
 	IgnoreTimes       bool
 	AlwaysChecksum    bool
 
-	// FilterList is the exclude/include list received from the
-	// peer (server-receiver) or accumulated from argv
-	// (client-receiver). nil means no rules; default-include.
-	FilterList FilterList
-
 	InfoGTE  func(rsyncopts.InfoLevel, uint16) bool
 	DebugGTE func(rsyncopts.DebugLevel, uint16) bool
 }
@@ -59,6 +50,7 @@ type Transfer struct {
 	// state
 	Conn            *rsyncwire.Conn
 	Seed            int32
+	FilterList      FilterList
 	IOErrors        int32
 	Users           map[int32]mapping
 	Groups          map[int32]mapping
