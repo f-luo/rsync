@@ -8,6 +8,7 @@
 package rsyncopts
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"math"
@@ -730,6 +731,47 @@ func (o *Options) OutputMOTD() bool           { return o.output_motd != 0 }
 func (o *Options) RsyncPort() int             { return o.rsync_port }
 func (o *Options) XferDirs() int              { return o.xfer_dirs }
 func (o *Options) FilterRules() []string      { return o.filterRules }
+
+// readFilterFile reads path and returns one canonical filter rule
+// per line. Blank lines and lines whose first non-whitespace
+// character is '#' or ';' are skipped. Lines with no "- "/"+ "/"!"
+// prefix take the sign given by defaultInclude (true → include,
+// false → exclude) — mirroring rsync's --include-from vs
+// --exclude-from. The emitted strings are XFLG_OLD_PREFIXES form,
+// i.e. what sender.ParseFilterRules expects.
+//
+// options.c:parse_filter_file
+func readFilterFile(path string, defaultInclude bool) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var lines []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimRight(sc.Text(), "\r")
+		t := strings.TrimLeft(line, " \t")
+		if t == "" || t[0] == '#' || t[0] == ';' {
+			continue
+		}
+		switch {
+		case t == "!",
+			strings.HasPrefix(t, "- "),
+			strings.HasPrefix(t, "+ "):
+			lines = append(lines, t)
+		case defaultInclude:
+			lines = append(lines, "+ "+t)
+		default:
+			lines = append(lines, "- "+t)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
 func (o *Options) Progress() bool {
 	return o.info[INFO_PROGRESS] > 0
 }
@@ -1389,9 +1431,12 @@ func (pc *Context) ParseArguments(osenv *rsyncos.Env, args []string) error {
 		case OPT_INCLUDE:
 			opts.filterRules = append(opts.filterRules, "+ "+pc.poptGetOptArg())
 
-		case OPT_INCLUDE_FROM,
-			OPT_EXCLUDE_FROM:
-			return errNotYetImplemented
+		case OPT_INCLUDE_FROM, OPT_EXCLUDE_FROM:
+			lines, err := readFilterFile(pc.poptGetOptArg(), opt == OPT_INCLUDE_FROM)
+			if err != nil {
+				return err
+			}
+			opts.filterRules = append(opts.filterRules, lines...)
 
 		case 'a':
 			if opts.recurse == 0 {

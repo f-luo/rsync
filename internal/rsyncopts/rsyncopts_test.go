@@ -209,6 +209,34 @@ func TestParseArgumentsError(t *testing.T) {
 	}
 }
 
+func TestFilterFromFile(t *testing.T) {
+	dir := t.TempDir()
+	inc := filepath.Join(dir, "inc")
+	exc := filepath.Join(dir, "exc")
+	if err := os.WriteFile(inc, []byte("# keep list\nkeep.go\n+ also.go\n- drop.go\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exc, []byte("; skip list\n*.log\n+ keep.log\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	osenv := rsyncostest.New(t)
+	pc := NewContext(NewOptions(osenv))
+	if err := pc.ParseArguments(osenv, []string{"--include-from=" + inc, "--exclude-from=" + exc}); err != nil {
+		t.Fatalf("ParseArguments: %v", err)
+	}
+	want := []string{
+		"+ keep.go",
+		"+ also.go",
+		"- drop.go",
+		"- *.log",
+		"+ keep.log",
+	}
+	if diff := cmp.Diff(want, pc.Options.FilterRules()); diff != "" {
+		t.Errorf("FilterRules: diff (-want +got):\n%s", diff)
+	}
+}
+
 func TestParseArgumentsRemaining(t *testing.T) {
 	for _, tt := range []struct {
 		args []string
