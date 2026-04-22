@@ -8,7 +8,6 @@
 package rsyncopts
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"math"
@@ -19,6 +18,7 @@ import (
 	"syscall"
 	"unicode"
 
+	"github.com/gokrazy/rsync/internal/rsyncfilter"
 	"github.com/gokrazy/rsync/internal/rsyncos"
 	"github.com/gokrazy/rsync/internal/version"
 )
@@ -218,7 +218,7 @@ type Options struct {
 	info           [COUNT_INFO]uint16
 	debug          [COUNT_DEBUG]uint16
 	local_server   int
-	filterRules    []string
+	filterList     *rsyncfilter.List
 
 	// order matches long_options order
 	verbose                int
@@ -731,44 +731,19 @@ func (o *Options) IgnoreTimes() bool          { return o.ignore_times != 0 }
 func (o *Options) OutputMOTD() bool           { return o.output_motd != 0 }
 func (o *Options) RsyncPort() int             { return o.rsync_port }
 func (o *Options) XferDirs() int              { return o.xfer_dirs }
-func (o *Options) FilterRules() []string      { return o.filterRules }
+// FilterList returns the parsed --exclude/--include/--filter/...-from
+// rules accumulated during argument parsing. The returned pointer may
+// be nil if no filter flag was passed; callers (and rsyncfilter.List
+// methods) handle nil as "no rules".
+func (o *Options) FilterList() *rsyncfilter.List { return o.filterList }
 
-// readFilterFile reads path and returns one XFLG_OLD_PREFIXES-form
-// rule per line. Lines without an explicit "- "/"+ "/"!" prefix take
-// the sign given by defaultInclude, mirroring --include-from vs
-// --exclude-from.
-//
-// options.c:parse_filter_file
-func readFilterFile(path string, defaultInclude bool) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+// ensureFilterList lazily allocates o.filterList so the option handlers
+// can append rules without repeating the nil check.
+func (o *Options) ensureFilterList() *rsyncfilter.List {
+	if o.filterList == nil {
+		o.filterList = rsyncfilter.New()
 	}
-	defer f.Close()
-
-	var lines []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		t := strings.TrimLeft(line, " \t")
-		if t == "" || t[0] == '#' || t[0] == ';' {
-			continue
-		}
-		switch {
-		case t == "!",
-			strings.HasPrefix(t, "- "),
-			strings.HasPrefix(t, "+ "):
-			lines = append(lines, t)
-		case defaultInclude:
-			lines = append(lines, "+ "+t)
-		default:
-			lines = append(lines, "- "+t)
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return lines, nil
+	return o.filterList
 }
 
 func (o *Options) Progress() bool {
@@ -1424,18 +1399,29 @@ func (pc *Context) ParseArguments(osenv *rsyncos.Env, args []string) error {
 			return nil
 
 		case OPT_FILTER:
-			opts.filterRules = append(opts.filterRules, pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Parse(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--filter: %w", err)
+			}
 		case OPT_EXCLUDE:
-			opts.filterRules = append(opts.filterRules, "- "+pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Exclude(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--exclude: %w", err)
+			}
 		case OPT_INCLUDE:
-			opts.filterRules = append(opts.filterRules, "+ "+pc.poptGetOptArg())
+			if err := opts.ensureFilterList().Include(pc.poptGetOptArg()); err != nil {
+				return fmt.Errorf("--include: %w", err)
+			}
 
 		case OPT_INCLUDE_FROM, OPT_EXCLUDE_FROM:
-			lines, err := readFilterFile(pc.poptGetOptArg(), opt == OPT_INCLUDE_FROM)
+			path := pc.poptGetOptArg()
+			f, err := os.Open(path)
 			if err != nil {
 				return err
 			}
-			opts.filterRules = append(opts.filterRules, lines...)
+			err = opts.ensureFilterList().AddFromReader(f, opt == OPT_INCLUDE_FROM)
+			f.Close()
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 
 		case 'a':
 			if opts.recurse == 0 {

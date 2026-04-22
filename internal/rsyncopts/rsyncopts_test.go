@@ -226,17 +226,32 @@ func TestFilterFromFile(t *testing.T) {
 	if err := pc.ParseArguments(osenv, []string{"--include-from=" + inc, "--exclude-from=" + exc}); err != nil {
 		t.Fatalf("ParseArguments: %v", err)
 	}
-	want := []string{
-		"+ keep.go",
-		"+ also.go",
-		"- drop.go",
-		"- *.log",
-		"+ keep.log",
-		"!",
-		"- after-reset",
+
+	// ParseArguments processes --include-from first, then
+	// --exclude-from; the "!" in exc clears every rule seen so far,
+	// leaving just the trailing "- after-reset".
+	list := pc.Options.FilterList()
+	if list == nil {
+		t.Fatal("FilterList() = nil, want non-nil")
 	}
-	if diff := cmp.Diff(want, pc.Options.FilterRules()); diff != "" {
-		t.Errorf("FilterRules: diff (-want +got):\n%s", diff)
+	if got := list.Len(); got != 1 {
+		t.Errorf("FilterList().Len() = %d, want 1", got)
+	}
+
+	cases := []struct {
+		path                        string
+		isDir, wantInclude, matched bool
+	}{
+		{"after-reset", false, false, true}, // explicit exclude survived the "!"
+		{"keep.go", false, true, false},     // the "!" wiped it; defaults include
+		{"noisy.log", false, true, false},   // likewise
+	}
+	for _, c := range cases {
+		inc, matched := list.Match(c.path, c.isDir)
+		if inc != c.wantInclude || matched != c.matched {
+			t.Errorf("Match(%q) = (inc=%v, matched=%v), want (%v, %v)",
+				c.path, inc, matched, c.wantInclude, c.matched)
+		}
 	}
 }
 
